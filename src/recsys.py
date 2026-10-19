@@ -2,12 +2,24 @@ import os
 import numpy as np
 import pandas as pd
 
+# Веса скоринга; можно менять на лету через атрибут weights
+DEFAULT_WEIGHTS = {
+    "like": 0.7,
+    "view": 0.3,
+    "dislike": 1.0,
+    "age": 0.5,
+    "age_scale": 10,
+    "language": 0.1,
+    "language_like": 2,
+}
+
 
 class RecommendationSystem:
     def __init__(self, db, dataset_path):
         self.db = db
         self.dataset_path = dataset_path
         self.top_k = 5
+        self.weights = dict(DEFAULT_WEIGHTS)
         self.books_df = None
         self.books_df_mtime = None
         self.book_ids = []
@@ -50,6 +62,7 @@ class RecommendationSystem:
         self.load_books()
 
     def recommend(self, user_id):
+        w = self.weights
         # Получаем язык и возраст пользователя
         user_language = self.db.get_user_metadata(user_id).get("language", "ru")  
         user_age = self.db.get_user_metadata(user_id).get("age", 30) 
@@ -65,16 +78,16 @@ class RecommendationSystem:
 
             filtered = books[books["id"].isin(self.book_ids)].copy()
             mean_ages = filtered["mean_age"].fillna(30).values.astype(np.float32)
-            age_scores = np.exp(-np.abs(user_age - mean_ages) / 10)
+            age_scores = np.exp(-np.abs(user_age - mean_ages) / w["age_scale"])
 
             language_scores = []
             for bid in self.book_ids:
                 view_count = self.db.get_language_view_counts(bid).get(user_language, 0)
                 like_count = self.db.get_language_like_counts(bid).get(user_language, 0)
-                language_score = (like_count * 2) + view_count
-                language_scores.append(language_score * 0.1)
+                language_score = (like_count * w["language_like"]) + view_count
+                language_scores.append(language_score * w["language"])
 
-            final_scores = embedding_scores + np.array(language_scores) + (age_scores * 0.5)
+            final_scores = embedding_scores + np.array(language_scores) + (age_scores * w["age"])
             top_indices = np.argsort(-final_scores)[:self.top_k]
 
             return [
@@ -83,12 +96,12 @@ class RecommendationSystem:
         else:
             # Холодный старт
             books["score"] = (
-                books["like_count"] * 0.7
-                + books["view_count"] * 0.3
-                - books["dislike_count"]
+                books["like_count"] * w["like"]
+                + books["view_count"] * w["view"]
+                - books["dislike_count"] * w["dislike"]
             )
-            books["age_score"] = np.exp(-np.abs(user_age - books["mean_age"]) / 10)
-            books["score"] += books["age_score"] * 0.5
+            books["age_score"] = np.exp(-np.abs(user_age - books["mean_age"]) / w["age_scale"])
+            books["score"] += books["age_score"] * w["age"]
 
             books["like_count_same_language"] = books["id"].apply(
                 lambda x: self.db.get_language_like_counts(x).get(user_language, 0)
@@ -96,8 +109,8 @@ class RecommendationSystem:
             books["view_count_same_language"] = books["id"].apply(
                 lambda x: self.db.get_language_view_counts(x).get(user_language, 0)
             )
-            books["language_score"] = (books["like_count_same_language"] * 2) + books["view_count_same_language"]
-            books["score"] += books["language_score"] * 0.1
+            books["language_score"] = (books["like_count_same_language"] * w["language_like"]) + books["view_count_same_language"]
+            books["score"] += books["language_score"] * w["language"]
 
             top_books = books.sort_values(by="score", ascending=False).head(self.top_k)
             return [(row.to_dict(), row["id"]) for _, row in top_books.iterrows()]

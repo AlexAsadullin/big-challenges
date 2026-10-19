@@ -23,7 +23,7 @@
   --shadow: 0 1px 2px rgba(21, 26, 34, 0.06), 0 8px 24px rgba(21, 26, 34, 0.06);
   --shadow-raised: 0 1px 2px rgba(21, 26, 34, 0.10), 0 2px 6px rgba(21, 26, 34, 0.06);
 
-  /* категориальная палитра графиков (проверена валидатором на #ffffff) */
+  /* categorical chart palette (validated against #ffffff and #171b23) */
   --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a; --c4: #eda100;
   --c5: #e87ba4; --c6: #008300; --c7: #6250d6; --c8: #e34948;
 
@@ -107,44 +107,7 @@ p { margin: 0; }
 .small { font-size: 14px; }
 .num { font-variant-numeric: tabular-nums; }
 [hidden] { display: none !important; }
-
-/* ---------- каркас ---------- */
-.shell { max-width: 1120px; margin: 0 auto; padding: 20px 16px 64px; }
-.topbar {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
-.brand-mark {
-  width: 32px; height: 32px; border-radius: 10px;
-  display: grid; place-items: center;
-  background: var(--accent-tint); color: var(--accent);
-}
-.topbar-right { display: flex; align-items: center; gap: 10px; }
-.conn { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
-.dot.off { background: var(--danger); }
-.dot.wait { background: var(--warn-ring); }
-
-/* сегментированная навигация */
-.segmented {
-  display: flex; gap: 2px; padding: 3px;
-  background: var(--field); border-radius: 12px;
-  overflow-x: auto; scrollbar-width: none;
-  margin-bottom: 20px;
-}
-.segmented::-webkit-scrollbar { display: none; }
-.segmented button {
-  flex: 1 0 auto;
-  border: 0; background: transparent; color: var(--muted);
-  font: 600 15px/1 var(--font);
-  padding: 10px 16px; border-radius: 9px; cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.segmented button:hover { color: var(--ink); }
-.segmented button[aria-selected="true"] {
-  background: var(--seg-active); color: var(--ink); box-shadow: var(--shadow-raised);
-}
+code { font-family: var(--mono); font-size: 0.9em; }
 
 .card {
   background: var(--panel); border-radius: var(--r-card);
@@ -157,7 +120,7 @@ p { margin: 0; }
 .grid-2 > .card + .card { margin-top: 0; }
 @media (max-width: 860px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
 
-/* ---------- элементы управления ---------- */
+/* ---------- controls ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   border: 0; border-radius: var(--r-ctl);
@@ -176,7 +139,7 @@ p { margin: 0; }
 .btn.ghost:hover { background: var(--field); }
 .btn.sm { padding: 8px 12px; font-size: 14px; border-radius: 10px; }
 .btn.icon { padding: 11px; }
-.btn:focus-visible, .chip:focus-visible, .segmented button:focus-visible {
+.btn:focus-visible, .chip:focus-visible, .tab:focus-visible, .nav-item:focus-visible {
   outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
@@ -220,6 +183,7 @@ p { margin: 0; }
   font-size: 13px; font-weight: 600; line-height: 1.5;
   background: var(--accent-tint); color: var(--accent);
 }
+.badge.neutral { background: var(--field); color: var(--muted); }
 .badge.ok { background: var(--ok-tint); color: var(--ok); }
 .badge.warn { background: var(--warn-tint); color: var(--warn); }
 .badge.danger { background: var(--danger-tint); color: var(--danger); }
@@ -234,27 +198,7 @@ p { margin: 0; }
 }
 .alert.danger { background: var(--danger-tint); color: var(--danger); }
 
-/* ---------- чат ---------- */
-.chat { display: flex; flex-direction: column; min-height: 560px; }
-.messages { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 4px 0 16px; }
-.msg { max-width: 82%; padding: 12px 16px; border-radius: 14px; }
-.msg.user { align-self: flex-end; background: var(--accent-tint); color: var(--ink); border-bottom-right-radius: 6px; }
-.msg.bot { align-self: flex-start; background: var(--canvas); border-bottom-left-radius: 6px; }
-.msg.bot.pending { color: var(--muted); }
-.msg .books { margin-top: 12px; }
-.empty { text-align: center; color: var(--muted); padding: 40px 12px; }
-.empty .chips { justify-content: center; margin-top: 14px; }
-.composer { display: flex; gap: 8px; align-items: flex-end; }
-.composer .textarea { min-height: 46px; max-height: 180px; resize: none; }
-@media (max-width: 600px) {
-  .send-label { display: none; }
-  #send-btn { padding: 11px; }
-  .card { padding: 16px; }
-  .msg { max-width: 92%; }
-}
-.mic.listening { background: var(--danger-tint); color: var(--danger); }
-
-/* ---------- плитки книг ---------- */
+/* ---------- book tiles ---------- */
 .books { display: grid; gap: 8px; }
 .book {
   display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 10px;
@@ -268,7 +212,7 @@ p { margin: 0; }
 .book-desc { grid-column: 2; font-size: 14px; color: var(--muted); margin-top: 4px; }
 .feedback { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 
-/* ---------- таблица ---------- */
+/* ---------- tables ---------- */
 .table-wrap { overflow-x: auto; margin: 0 -6px; }
 table { width: 100%; border-collapse: separate; border-spacing: 0 2px; font-size: 15px; }
 th {
@@ -289,7 +233,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .detail h3 { font-size: 18px; margin-bottom: 4px; }
 .detail .badges { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 14px; }
 
-/* ---------- KPI и графики ---------- */
+/* ---------- KPIs and charts ---------- */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .kpi { background: var(--canvas); border-radius: 12px; padding: 14px 16px; }
 .kpi-value { font-size: 28px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
@@ -307,7 +251,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .col-val { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; margin-bottom: 4px; }
 .col-fill { width: 100%; max-width: 44px; border-radius: 4px 4px 0 0; background: var(--c1); min-height: 2px; }
 .col-axis { display: flex; gap: 6px; border-top: 1px solid var(--field); padding-top: 6px; }
-.col-axis span { flex: 1; text-align: center; font-size: 12px; color: var(--muted); min-width: 0; font-variant-numeric: tabular-nums; }
+.col-axis span { flex: 1; text-align: center; font-size: 11px; white-space: nowrap; overflow: hidden; color: var(--muted); min-width: 0; font-variant-numeric: tabular-nums; }
 
 .stack-bar { display: flex; gap: 2px; height: 18px; border-radius: 4px; overflow: hidden; background: var(--field); }
 .stack-bar div { min-width: 2px; }
@@ -322,7 +266,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   border-radius: 10px; padding: 6px 10px; font-size: 14px;
 }
 
-/* ---------- оверлеи ---------- */
+/* ---------- overlays ---------- */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
   background: var(--toast-bg); color: var(--toast-ink);
@@ -339,3 +283,64 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .dialog h2 { margin-bottom: 6px; }
 .dialog .row.end { margin-top: 18px; }
+
+.field .hint { font-size: 13px; color: var(--muted); }
+.book-desc.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.avatar {
+  width: 44px; height: 44px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  background: var(--accent-tint); color: var(--accent); font-weight: 700;
+}
+.avatar.lg { width: 64px; height: 64px; font-size: 22px; }
+
+/* ---------- motion ---------- */
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes pop { 0% { transform: scale(0.92); opacity: 0; } 70% { transform: scale(1.03); opacity: 1; } 100% { transform: none; } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@keyframes leaf {
+  0%, 8% { transform: rotateY(0); filter: brightness(1); }
+  30% { filter: brightness(0.82); }
+  52%, 100% { transform: rotateY(-180deg); filter: brightness(1); }
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.enter { animation: fade-up 0.24s ease-out both; }
+.pop { animation: pop 0.28s ease-out both; }
+.toast:not([hidden]) { animation: toast-in 0.2s ease-out; }
+.view-enter { animation: fade-up 0.2s ease-out; }
+
+/* "thinking": an open book flipping its pages next to a shimmering status phrase */
+.thinking { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+.flipbook {
+  position: relative; width: 34px; height: 24px; flex: none;
+  perspective: 140px; border-radius: 4px; background: var(--accent);
+}
+.flipbook::before, .flipbook::after, .flipbook i {
+  content: ""; position: absolute; top: 2px; bottom: 2px; width: 14px;
+  background: var(--panel) repeating-linear-gradient(180deg, transparent 0 4px, var(--field) 4px 5px);
+  background-clip: content-box; padding: 3px 2px;
+}
+.flipbook::before { left: 2px; border-radius: 2px 0 0 2px; }
+.flipbook::after { right: 2px; border-radius: 0 2px 2px 0; }
+.flipbook i {
+  left: 17px; z-index: 1; border-radius: 0 2px 2px 0;
+  transform-origin: left center; backface-visibility: visible;
+  background-color: var(--panel); background-clip: border-box;
+  animation: leaf 2.4s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+.flipbook i:nth-child(2) { animation-delay: 0.35s; }
+.flipbook i:nth-child(3) { animation-delay: 0.7s; }
+.thinking-text {
+  background: linear-gradient(90deg, var(--muted) 0 38%, var(--ink) 50%, var(--muted) 62% 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+.thinking-text.swap { animation: shimmer 2.2s linear infinite, fade-up 0.3s ease-out; }
+.caret::after { content: "▍"; margin-left: 1px; color: var(--accent); animation: blink 0.9s step-end infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .thinking-text { color: var(--muted); background: none; }
+}

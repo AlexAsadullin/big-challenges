@@ -16,29 +16,38 @@
    ```bash
    pip install -r requirements.txt   ```
 
-## Веб-интерфейс
+## Web app
 
-В `web/` — веб-приложение на FastAPI, которое использует те же `db.py`, `rag.py` и `recsys.py`, что и бот.
+`web/` contains a FastAPI app built on the same `db.py`, `rag.py` and `recsys.py` as the bot. It has two interfaces:
 
-| Раздел | Что делает |
-|---|---|
-| Чат | RAG-поиск по базе + ответ GigaChat, лайк/дизлайк подборки, голосовой ввод (Web Speech API) |
-| Для меня | персональные рекомендации из `recsys.py` |
-| Каталог | поиск, фильтр по жанрам, сортировка, карточка книги |
-| Добавить книгу | книга сразу попадает в CSV и FAISS-индекс |
-| Статистика | KPI, книги по жанрам, возраст читателей, популярные книги, реакции |
+**Reader app** at `/`, designed for phones:
+- **Advisor**: chat with RAG search and GigaChat, like/dislike a set of picks, voice input (Web Speech API)
+- **For You**: personal recommendations from `recsys.py`
+- **Add Book**: the book goes straight into the CSV and the FAISS index
+- **Profile**: name, age and language, which the recommender uses
 
-Пользователь веба определяется cookie (отрицательный `user_id`, чтобы не пересекаться с id из Telegram).
-Модели RAG грузятся в фоне: пока они загружаются (или если не задан `API_KEY`), каталог,
-подборки и статистика работают, а чат и добавление книг недоступны.
+**Admin console** at `/admin`, designed for desktop, password-protected:
+- **Overview**: users, activity, reactions, genres, ages, languages, top books
+- **Users**: every web and Telegram user, with likes, dislikes and recent recommendations
+- **Books**: the catalog with search, genre filters and per-book stats
+- **Settings**: GigaChat temperature/top-p, books per prompt, history length, system prompt, and the recommender weights. Changes apply to the running app without a restart.
 
-### Запуск
+Web readers are identified by a cookie and get negative `user_id`s, so they never collide with Telegram ids.
+RAG models load in the background. Until they're ready (or if `API_KEY` is missing), For You, the profile
+and the admin console work, while chat and adding books are unavailable.
+
+### Running
 
 ```bash
-pip install -r requirements.txt
-python scripts/make_sample_csv.py books.csv   # если нет своего books.csv
-export API_KEY="<ключ GigaChat>"               # BOT_TOKEN, DB_PATH, CSV_PATH, INDEX_PATH — тоже через env
+uv venv --python 3.12 && source .venv/bin/activate
+uv pip install -r requirements.txt
+python scripts/make_sample_csv.py books.csv    # if you don't have your own books.csv
+export API_KEY="<GigaChat key>"
+export ADMIN_PASSWORD="<admin password>"       # the admin console is disabled without it
+export SESSION_SECRET="<random string>"        # optional: keeps admins signed in across restarts
 uvicorn web.app:app --port 8000
 ```
 
-Откройте http://127.0.0.1:8000. Бот запускается как раньше: `cd src && python bot.py`.
+Open http://127.0.0.1:8000 for the reader app and http://127.0.0.1:8000/admin for the console.
+`BOT_TOKEN`, `DB_PATH`, `CSV_PATH` and `INDEX_PATH` can also be set as environment variables.
+The bot still runs as before: `cd src && python bot.py`.

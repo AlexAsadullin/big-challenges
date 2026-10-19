@@ -1,6 +1,6 @@
-"""Создаёт небольшой books.csv в формате, который ожидают rag.py и recsys.py.
+"""Creates a small books.csv in the format rag.py and recsys.py expect.
 
-    python scripts/make_sample_csv.py [путь]   # по умолчанию books.csv
+    python scripts/make_sample_csv.py [path]   # defaults to books.csv
 """
 import sys
 
@@ -61,7 +61,7 @@ def main(path):
     df["dislike_count"] = 0
     df["mean_age"] = 30.0
     df.to_csv(path, index=False)
-    print(f"{len(df)} книг записано в {path}")
+    print(f"Wrote {len(df)} books to {path}")
 
 
 if __name__ == "__main__":
