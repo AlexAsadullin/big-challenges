@@ -272,7 +272,10 @@ function showBook(b) {
       kpiTile(fmt(b.views || 0), "views"), kpiTile(reactions ? fmtPct((b.likes || 0) / reactions) : "—", "like rate"),
       kpiTile(fmt(b.likes || 0), "likes"), kpiTile(fmt(b.dislikes || 0), "dislikes")),
     el("p", { class: "muted small", style: "margin-top:12px" },
-      `Book #${b.id}`, b.mean_age != null ? ` · mean reader age ${Math.round(b.mean_age)}` : "")));
+      `Book #${b.id}`, b.mean_age != null ? ` · mean reader age ${Math.round(b.mean_age)}` : ""),
+    el("div", { class: "row", style: "margin-top:12px" },
+      el("a", { class: "btn sm", href: `/api/books/${b.id}/open`, target: "_blank", rel: "noopener" }, "Open book page ↗"),
+      el("span", { class: "muted small" }, b.link ? "Custom link" : "Open Library"))));
 }
 
 let bookTimer;

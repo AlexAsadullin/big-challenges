@@ -344,3 +344,4 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   .thinking-text { color: var(--muted); background: none; }
 }
+.field label .hint { margin-left: 6px; font-weight: 500; }

@@ -98,3 +98,15 @@
 .list-row:nth-child(odd) { background: var(--canvas); }
 
 .feedback { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+
+/* clickable books: open their page in a new tab */
+a.book, a.pick { position: relative; color: inherit; text-decoration: none; cursor: pointer; transition: background 0.15s, transform 0.15s; }
+a.book { padding-right: 34px; }
+a.book:hover { background: var(--field); }
+a.pick:hover { background: color-mix(in srgb, var(--panel) 92%, var(--accent)); }
+a.book:active, a.pick:active { transform: translateY(1px); }
+a.book:focus-visible, a.pick:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+.ext { position: absolute; top: 12px; right: 12px; width: 16px; height: 16px; color: var(--muted); transition: color 0.15s; }
+a.book:hover .ext, a.pick:hover .ext { color: var(--accent); }
+a.pick { padding-right: 36px; }
+a.pick + a.pick { margin-top: 10px; }

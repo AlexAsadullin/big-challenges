@@ -26,6 +26,10 @@
 - **Add Book**: the book goes straight into the CSV and the FAISS index
 - **Profile**: name, age and language, which the recommender uses
 
+Every recommended book in Advisor and For You is a link. It opens the book's own link if one was given in
+Add Book, otherwise its Open Library work page (free, no registration, includes the description). Lookups
+are cached in the `web_book_links` table and prefetched as soon as recommendations are shown.
+
 **Admin console** at `/admin`, designed for desktop, password-protected:
 - **Overview**: users, activity, reactions, genres, ages, languages, top books
 - **Users**: every web and Telegram user, with likes, dislikes and recent recommendations

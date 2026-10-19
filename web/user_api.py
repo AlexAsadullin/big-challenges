@@ -5,9 +5,12 @@ from typing import Optional
 
 import pandas as pd
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from web.core import CSV_PATH, book_out, db, engine, genre_counts, lock, logger, recommender, touch
+from web.core import (
+    CSV_PATH, book_link, book_out, db, engine, genre_counts, lock, logger, prefetch_links, recommender, touch,
+)
 
 router = APIRouter(prefix="/api")
 UID_COOKIE = "uid"
@@ -116,6 +119,7 @@ def chat(body: ChatIn, tasks: BackgroundTasks, user_id: int = Depends(current_us
         reply = rag.clean_text(response.content)
         set_id = db.save_recommendation_set(user_id, [int(b["id"]) for b in books])
     tasks.add_task(update_profile_task, user_id)
+    tasks.add_task(prefetch_links, [b["id"] for b in books])
     return {"reply": reply, "books": [book_out(b) for b in books], "set_id": set_id}
 
 
@@ -130,12 +134,13 @@ def chat_reset(user_id: int = Depends(current_user)):
 # ---------- personal recommendations ----------
 
 @router.get("/recommendations")
-def recommendations(user_id: int = Depends(current_user)):
+def recommendations(tasks: BackgroundTasks, user_id: int = Depends(current_user)):
     require_age(user_id)
     with lock:
         recs = recommender.recommend(user_id)
         books = [book for book, _ in recs]
         set_id = db.save_recommendation_set(user_id, [int(book_id) for _, book_id in recs])
+    tasks.add_task(prefetch_links, [book_id for _, book_id in recs])
     return {"books": [book_out(b) for b in books], "set_id": set_id}
 
 
@@ -187,6 +192,15 @@ class BookIn(BaseModel):
     description: str = Field(min_length=1, max_length=5000)
     genre: str = Field(min_length=1, max_length=200)
     rating: Optional[float] = Field(default=None, ge=0, le=5)
+    link: Optional[str] = Field(default=None, max_length=500, pattern=r"^(https?://\S+)?$")
+
+
+@router.get("/books/{book_id}/open")
+def open_book(book_id: int):
+    url = book_link(book_id)
+    if url is None:
+        raise HTTPException(404, "Book not found")
+    return RedirectResponse(url, status_code=302)
 
 
 @router.post("/books", status_code=201)
@@ -201,6 +215,7 @@ def add_book(body: BookIn, user_id: int = Depends(current_user)):
         "like_count": 0,
         "view_count": 0,
         "dislike_count": 0,
+        "Link": (body.link or "").strip() or None,
     }
     new_book["Combined"] = (
         f"{new_book['Title']} by {new_book['Author']}. Genre: {new_book['Genre']}. "

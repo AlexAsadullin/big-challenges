@@ -2,15 +2,19 @@
 import json
 import logging
 import math
+import sqlite3
 import sys
 import threading
 import time
 import traceback
+import urllib.parse
 import warnings
+from contextlib import closing
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import requests
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,6 +57,10 @@ with lock:
         CREATE TABLE IF NOT EXISTS web_settings (
             key TEXT PRIMARY KEY,
             value TEXT
+        );
+        CREATE TABLE IF NOT EXISTS web_book_links (
+            book_id INTEGER PRIMARY KEY,
+            url TEXT
         );
         """
     )
@@ -203,6 +211,7 @@ def book_out(book, full=False):
         "views": clean(book.get("view_count")),
     }
     if full:
+        out["link"] = clean(book.get("Link"))
         out["dislikes"] = clean(book.get("dislike_count"))
         out["mean_age"] = clean(book.get("mean_age"))
     return out
@@ -235,3 +244,71 @@ def query_books(q="", genre="", sort="title", offset=0, limit=50) -> pd.DataFram
     if column in df:
         df = df.sort_values(column, ascending=ascending, na_position="last")
     return df
+
+
+# ---------- book pages ----------
+# Books open on Open Library: free, no registration, and work pages carry the description.
+
+OPEN_LIBRARY = "https://openlibrary.org"
+
+
+def open_library_search_url(title, author):
+    return f"{OPEN_LIBRARY}/search?" + urllib.parse.urlencode({"q": f"{title} {author}".strip()})
+
+
+def find_open_library_work(title, author):
+    """Returns the Open Library work page for a book, or None if there's no confident match.
+
+    A free-text query ranks the canonical work first even when it's filed under its original
+    title ("Nineteen Eighty-Four", "Le petit prince"); title-field search returns adaptations.
+    """
+    try:
+        res = requests.get(
+            f"{OPEN_LIBRARY}/search.json",
+            params={"q": f"{title} {author}", "limit": 1, "fields": "key,author_name,author_alternative_name"},
+            headers={"User-Agent": "BooksAdvisor/1.0"},
+            timeout=8,
+        )
+        docs = res.json().get("docs", []) if res.ok else []
+    except Exception as e:
+        logger.warning(f"Open Library lookup failed for {title!r}: {e}")
+        return None
+    if not docs or not docs[0].get("key", "").startswith("/works/"):
+        return None
+    # Guard against a confident-looking wrong book: the authors must share a name.
+    # Alternative names carry transliterations ("Михаил Булгаков" is also "mikhail bulgakov").
+    names = {w for w in author.lower().replace(".", " ").split() if len(w) > 2 and w != "and"}
+    doc = docs[0]
+    found = " ".join(doc.get("author_name", []) + doc.get("author_alternative_name", [])).lower()
+    if not any(n in found for n in names):
+        return None
+    return OPEN_LIBRARY + docs[0]["key"]
+
+
+def book_link(book_id):
+    """The page a book opens: its own link if one was given, else its Open Library page."""
+    df = recommender.load_books()
+    rows = df[df["id"] == book_id]
+    if rows.empty:
+        return None
+    book = rows.iloc[0]
+    own = clean(book.get("Link"))
+    if isinstance(own, str) and own.startswith(("http://", "https://")):
+        return own
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        cached = conn.execute("SELECT url FROM web_book_links WHERE book_id = ?", (book_id,)).fetchone()
+        if cached:
+            return cached[0]
+        title, author = str(book.get("Title") or ""), str(book.get("Author") or "")
+        url = find_open_library_work(title, author)
+        if url is None:
+            return open_library_search_url(title, author)  # not cached, so a later click retries
+        conn.execute("INSERT OR REPLACE INTO web_book_links (book_id, url) VALUES (?, ?)", (book_id, url))
+        conn.commit()
+        return url
+
+
+def prefetch_links(book_ids):
+    """Resolves links right after recommendations are shown, so clicks open instantly."""
+    for book_id in book_ids:
+        book_link(int(book_id))

@@ -177,9 +177,23 @@ $("#profile-form").onsubmit = async (e) => {
 
 // ---------- books & feedback ----------
 
+const bookHref = (b) => `/api/books/${b.id}/open`;
+const externalIcon = () => {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "ext");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+  return svg;
+};
+const linkProps = (b, cls, i, step) => ({
+  class: `${cls} enter`, style: `animation-delay:${i * step}ms`,
+  href: bookHref(b), target: "_blank", rel: "noopener", title: `Read about "${b.title}"`,
+});
+
 function bookTiles(books) {
   return el("div", { class: "books" }, books.map((b, i) =>
-    el("div", { class: "book enter", style: `animation-delay:${i * 60}ms` },
+    el("a", linkProps(b, "book", i, 60), externalIcon(),
       el("span", { class: "book-n" }, i + 1),
       el("div", {},
         el("span", { class: "book-title" }, b.title), " ",
@@ -304,7 +318,7 @@ async function loadForMe() {
     // Keep the animation on screen long enough to read one phrase
     const [res] = await Promise.all([api("/api/recommendations"), new Promise((r) => setTimeout(r, 900))]);
     body.replaceChildren(...(res.books.length
-      ? [...res.books.map((b, i) => el("article", { class: "pick enter", style: `animation-delay:${i * 70}ms` },
+      ? [...res.books.map((b, i) => el("a", linkProps(b, "pick", i, 70), externalIcon(),
           el("div", { class: "pick-cover", style: "background:var(--accent)" }, (b.title || "?")[0]),
           el("div", { class: "pick-title" }, b.title),
           el("div", { class: "pick-meta" }, [b.author, b.genre].filter(Boolean).join(" · ")),
