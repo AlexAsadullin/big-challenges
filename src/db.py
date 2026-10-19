@@ -231,6 +231,21 @@ class Database:
         )
         return dict(cursor.fetchall())
 
+    def get_language_action_counts(self, language):
+        """Количество просмотров и лайков каждой книги от пользователей с этим языком: {(book_id, action): n}"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT i.book_id, i.action, COUNT(*)
+            FROM user_interactions i
+            JOIN user_profiles up ON i.user_id = up.user_id
+            WHERE up.language = ? AND i.action IN ('view', 'like')
+            GROUP BY i.book_id, i.action
+        """,
+            (language,),
+        )
+        return {(book_id, action): n for book_id, action, n in cursor.fetchall()}
+
     def save_recommendation_set(self, user_id, book_ids):
         """Сохраняет набор рекомендованных книг для пользователя и возвращает его id"""
         cursor = self.conn.cursor()

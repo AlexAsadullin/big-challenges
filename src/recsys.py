@@ -61,56 +61,58 @@ class RecommendationSystem:
             self.book_embeddings = np.vstack([self.book_embeddings, embedding])
         self.load_books()
 
-    def recommend(self, user_id):
+    def recommend(self, user_id, exclude=(), pool_size=40, rng=None):
+        """Подборка из top_k книг.
+
+        exclude — id книг, которые не надо показывать (уже показанные, оценённые);
+        pool_size — из скольких лучших книг случайно выбирается подборка, чтобы
+        «Обновить» давало новые книги; 0 или меньше top_k — строгий топ.
+        """
         w = self.weights
-        # Получаем язык и возраст пользователя
-        user_language = self.db.get_user_metadata(user_id).get("language", "ru")  
-        user_age = self.db.get_user_metadata(user_id).get("age", 30) 
+        meta = self.db.get_user_metadata(user_id)
+        user_language = meta.get("language") or "ru"
+        user_age = meta.get("age") or 30
 
         books = self.load_books()
+        # Активность читателей с тем же языком: один запрос вместо двух на каждую книгу
+        lang = self.db.get_language_action_counts(user_language)
+        lang_views = books["id"].map(lambda b: lang.get((b, "view"), 0)).to_numpy(dtype=np.float32)
+        lang_likes = books["id"].map(lambda b: lang.get((b, "like"), 0)).to_numpy(dtype=np.float32)
+        language_scores = (lang_likes * w["language_like"] + lang_views) * w["language"]
+        age_scores = np.exp(-np.abs(user_age - books["mean_age"].to_numpy(dtype=np.float32)) / w["age_scale"])
 
-        user_embedding = self.db.get_user_metadata(user_id).get("profile_embedding")
+        user_embedding = meta.get("profile_embedding")
         if user_embedding is not None and self.book_embeddings.size > 0:
-            # Теплый старт
-            user_norm = np.linalg.norm(user_embedding) or 1
-            book_norms = np.linalg.norm(self.book_embeddings, axis=1, keepdims=True) or 1
-            embedding_scores = np.dot(self.book_embeddings / book_norms, user_embedding / user_norm)
-
-            filtered = books[books["id"].isin(self.book_ids)].copy()
-            mean_ages = filtered["mean_age"].fillna(30).values.astype(np.float32)
-            age_scores = np.exp(-np.abs(user_age - mean_ages) / w["age_scale"])
-
-            language_scores = []
-            for bid in self.book_ids:
-                view_count = self.db.get_language_view_counts(bid).get(user_language, 0)
-                like_count = self.db.get_language_like_counts(bid).get(user_language, 0)
-                language_score = (like_count * w["language_like"]) + view_count
-                language_scores.append(language_score * w["language"])
-
-            final_scores = embedding_scores + np.array(language_scores) + (age_scores * w["age"])
-            top_indices = np.argsort(-final_scores)[:self.top_k]
-
-            return [
-                (filtered.iloc[idx].to_dict(), self.book_ids[idx]) for idx in top_indices
-            ]
+            # Теплый старт: близость к профилю пользователя
+            emb_by_id = dict(zip(self.book_ids, self.book_embeddings))
+            user_vec = user_embedding / (np.linalg.norm(user_embedding) or 1)
+            embedding_scores = np.array([
+                float(np.dot(emb_by_id[b], user_vec) / (np.linalg.norm(emb_by_id[b]) or 1)) if b in emb_by_id else 0.0
+                for b in books["id"]
+            ])
+            scores = embedding_scores + language_scores + age_scores * w["age"]
         else:
-            # Холодный старт
-            books["score"] = (
-                books["like_count"] * w["like"]
-                + books["view_count"] * w["view"]
-                - books["dislike_count"] * w["dislike"]
+            # Холодный старт: популярность
+            scores = (
+                books["like_count"].to_numpy(dtype=np.float32) * w["like"]
+                + books["view_count"].to_numpy(dtype=np.float32) * w["view"]
+                - books["dislike_count"].to_numpy(dtype=np.float32) * w["dislike"]
+                + age_scores * w["age"]
+                + language_scores
             )
-            books["age_score"] = np.exp(-np.abs(user_age - books["mean_age"]) / w["age_scale"])
-            books["score"] += books["age_score"] * w["age"]
 
-            books["like_count_same_language"] = books["id"].apply(
-                lambda x: self.db.get_language_like_counts(x).get(user_language, 0)
-            )
-            books["view_count_same_language"] = books["id"].apply(
-                lambda x: self.db.get_language_view_counts(x).get(user_language, 0)
-            )
-            books["language_score"] = (books["like_count_same_language"] * w["language_like"]) + books["view_count_same_language"]
-            books["score"] += books["language_score"] * w["language"]
+        order = np.argsort(-scores, kind="stable")
+        excluded = set(int(b) for b in exclude)
+        allowed = [i for i in order if int(books["id"].iat[i]) not in excluded]
+        if len(allowed) < self.top_k:  # всё уже показано — начинаем по кругу
+            allowed = list(order)
 
-            top_books = books.sort_values(by="score", ascending=False).head(self.top_k)
-            return [(row.to_dict(), row["id"]) for _, row in top_books.iterrows()]
+        pool = allowed[: max(pool_size, self.top_k)]
+        if len(pool) > self.top_k:
+            # Чем выше книга в рейтинге, тем вероятнее она попадёт в подборку
+            rng = rng or np.random.default_rng()
+            weights = np.exp(-np.arange(len(pool)) / (len(pool) / 3))
+            picked = rng.choice(len(pool), size=self.top_k, replace=False, p=weights / weights.sum())
+            pool = [pool[i] for i in sorted(picked)]
+        top = pool[: self.top_k]
+        return [(books.iloc[i].to_dict(), int(books["id"].iat[i])) for i in top]
