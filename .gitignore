@@ -6,3 +6,4 @@ books.csv
 books.db
 faiss_index.index
 bot.log
+.env

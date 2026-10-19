@@ -18,40 +18,62 @@
 
 ## Web app
 
-`web/` contains a FastAPI app built on the same `db.py`, `rag.py` and `recsys.py` as the bot. It has two interfaces:
+`web/` contains a FastAPI app built on the same `db.py`, `rag.py` and `recsys.py` as the bot.
 
-**Reader app** at `/`, designed for phones:
+**Reader app** at `/`, designed for phones. Readers create an account (email, password, age, language)
+and must accept the privacy policy to sign up.
 - **Advisor**: chat with RAG search and GigaChat, like/dislike a set of picks, voice input (Web Speech API)
-- **For You**: personal recommendations from `recsys.py`
-- **Add Book**: the book goes straight into the CSV and the FAISS index
-- **Profile**: name, age and language, which the recommender uses
+- **For You**: personal recommendations. Every refresh skips books from recent sets and books already rated,
+  and samples from the top-ranked pool, so it doesn't repeat itself
+- **Add Book**: the book goes straight into the CSV and the FAISS index, with an optional link
+- **Profile**: name, age, language; download my data; sign out; delete account
 
-Every recommended book in Advisor and For You is a link. It opens the book's own link if one was given in
-Add Book, otherwise its Open Library work page (free, no registration, includes the description). Lookups
-are cached in the `web_book_links` table and prefetched as soon as recommendations are shown.
+Every recommended book links to its own page: the link given in Add Book, or its Open Library work page
+(free, no registration, includes the description). Lookups are cached in `web_book_links`.
 
-**Admin console** at `/admin`, designed for desktop, password-protected:
-- **Overview**: users, activity, reactions, genres, ages, languages, top books
-- **Users**: every web and Telegram user, with likes, dislikes and recent recommendations
-- **Books**: the catalog with search, genre filters and per-book stats
-- **Settings**: GigaChat temperature/top-p, books per prompt, history length, system prompt, and the recommender weights. Changes apply to the running app without a restart.
+**Admin console** at `/admin`, designed for desktop, for accounts with the `admin` role:
+overview metrics, users (with email and consent date), books, and live settings for GigaChat and the recommender.
 
-Web readers are identified by a cookie and get negative `user_id`s, so they never collide with Telegram ids.
-RAG models load in the background. Until they're ready (or if `API_KEY` is missing), For You, the profile
-and the admin console work, while chat and adding books are unavailable.
+**API** under `/api`, documented at `/docs`.
+- `POST /api/auth/register`, `POST /api/auth/login` return a bearer **access token** (JWT, 15 minutes) and a
+  **refresh token** (30 days). Send `Authorization: Bearer <access_token>`.
+- `POST /api/auth/refresh` rotates the pair. Refresh tokens are stored in the database: reusing an old one
+  revokes the whole session (theft detection), and `POST /api/auth/logout` revokes it.
+- Passwords are hashed with scrypt (PBKDF2-SHA256 where Python's OpenSSL lacks scrypt). Sign-in is throttled
+  after 5 failures.
 
-### Running
+**Personal data.** The privacy policy is at `/privacy` (operator and contact come from `PRIVACY_OPERATOR` and
+`PRIVACY_CONTACT`). Consent is required to register and is recorded with its version and date. Bump
+`CONSENT_VERSION` in `web/auth.py` when the policy changes, and readers are asked to accept again.
+Readers can export their data (`GET /api/me/export`) and delete their account (`DELETE /api/me`), which removes
+their account, profile, reactions and history.
+
+**Data.** Accounts, profiles, reactions, recommendation history and tokens are stored in SQLite (`DB_PATH`).
+The catalog is `books.csv`, built from [goodbooks-10k-extended](https://github.com/malcolmosh/goodbooks-10k-extended)
+(about 9,900 books with descriptions, genres and ratings; CC BY-SA 4.0) by `scripts/build_dataset.py`.
+When the catalog changes size, the FAISS index is rebuilt on startup.
+
+### Running with Docker
 
 ```bash
-uv venv --python 3.12 && source .venv/bin/activate
+cp .env.example .env      # fill in API_KEY, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, PRIVACY_*
+docker compose up -d --build
+```
+
+Open http://localhost:8000 (reader app), http://localhost:8000/admin (console), http://localhost:8000/docs (API).
+The first start downloads the catalog and the search models and builds the index, which takes a few minutes;
+the advisor shows "warming up" until it's ready. Everything is kept in the `data` volume.
+
+The Telegram bot can run next to it, sharing the same data: set `BOT_TOKEN` and run `docker compose --profile bot up -d`.
+
+### Running locally
+
+```bash
+uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -r requirements.txt
-python scripts/make_sample_csv.py books.csv    # if you don't have your own books.csv
-export API_KEY="<GigaChat key>"
-export ADMIN_PASSWORD="<admin password>"       # the admin console is disabled without it
-export SESSION_SECRET="<random string>"        # optional: keeps admins signed in across restarts
+python scripts/build_dataset.py books.csv     # or scripts/make_sample_csv.py for a 40-book offline sample
+export API_KEY=... JWT_SECRET=... ADMIN_EMAIL=... ADMIN_PASSWORD=...
 uvicorn web.app:app --port 8000
 ```
 
-Open http://127.0.0.1:8000 for the reader app and http://127.0.0.1:8000/admin for the console.
-`BOT_TOKEN`, `DB_PATH`, `CSV_PATH` and `INDEX_PATH` can also be set as environment variables.
 The bot still runs as before: `cd src && python bot.py`.

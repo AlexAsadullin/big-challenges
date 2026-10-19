@@ -1,0 +1,33 @@
+services:
+  web:
+    build: .
+    image: books-advisor:latest
+    env_file: .env
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  # The original Telegram bot, sharing the same catalog and database. Start it with:
+  #   docker compose --profile bot up -d
+  bot:
+    image: books-advisor:latest
+    profiles: ["bot"]
+    command: ["python", "/app/src/bot.py"]
+    env_file: .env
+    volumes:
+      - data:/data
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  data:
