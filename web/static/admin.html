@@ -17,8 +17,9 @@
       <div class="brand-mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5"/><path d="M19 19v2.5H6.5"/></svg></div>
       <div><h2>Admin console</h2><p>Books Advisor</p></div>
     </div>
-    <div class="alert attention" id="login-disabled" hidden>The admin console is turned off. Set the <code>ADMIN_PASSWORD</code> environment variable and restart the server.</div>
-    <div id="login-fields">
+    <div class="alert attention" id="login-denied" hidden style="margin-bottom:14px">This account isn't an admin. Admin accounts come from the <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> environment variables.</div>
+    <div id="login-fields" class="form-stack" style="display:grid;gap:14px">
+      <div class="field"><label for="email">Email</label><input class="input" id="email" type="email" autocomplete="username" required></div>
       <div class="field"><label for="password">Password</label><input class="input" id="password" type="password" autocomplete="current-password" required></div>
       <div class="row end"><button class="btn primary" id="login-btn" style="width:100%">Sign in</button></div>
     </div>
@@ -71,7 +72,7 @@
       <div class="split">
         <div class="card">
           <div class="toolbar wide">
-            <input class="input" id="u-q" type="search" placeholder="Search by name or id" aria-label="Search users">
+            <input class="input" id="u-q" type="search" placeholder="Search by name, email or id" aria-label="Search users">
             <div class="chips" id="u-source">
               <button class="chip active" data-source="all">All</button>
               <button class="chip" data-source="web">Web</button>
@@ -87,7 +88,7 @@
             </select>
           </div>
           <div class="table-wrap"><table>
-            <thead><tr><th>User</th><th>Source</th><th class="num">Age</th><th>Language</th><th class="num">Sets</th><th class="num">Likes</th><th class="num">Dislikes</th><th>Last active</th></tr></thead>
+            <thead><tr><th>User</th><th>Source</th><th class="num">Age</th><th>Language</th><th class="num">Sets</th><th class="num">Likes</th><th class="num">Dislikes</th><th>Consent</th><th>Last active</th></tr></thead>
             <tbody id="user-rows"></tbody>
           </table></div>
         </div>

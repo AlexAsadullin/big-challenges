@@ -1,37 +1,21 @@
-"""API for the reader-facing app."""
-import secrets
+"""API for the reader app. Every reader endpoint needs a bearer access token and accepted consent."""
 import traceback
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
+from web.auth import (
+    CONSENT_VERSION, LANGUAGES, current_account, current_reader, get_account, public_account, revoke_all,
+    user_id_of, verify_password,
+)
 from web.core import (
-    CSV_PATH, book_link, book_out, db, engine, genre_counts, lock, logger, prefetch_links, recommender, touch,
+    CSV_PATH, book_link, book_out, db, engine, genre_counts, load_settings, lock, logger, prefetch_links, recommender,
 )
 
-router = APIRouter(prefix="/api")
-UID_COOKIE = "uid"
-LANGUAGES = {"en", "ru", "de", "fr", "es", "it", "pt", "uk", "kk", "zh", "ja", "tr"}
-
-
-def current_user(request: Request, response: Response) -> int:
-    """Web users get negative ids so they never collide with Telegram ids."""
-    raw = request.cookies.get(UID_COOKIE)
-    if raw and raw.lstrip("-").isdigit() and int(raw) < 0:
-        user_id = int(raw)
-    else:
-        user_id = -secrets.randbelow(10**12) - 1
-        response.set_cookie(UID_COOKIE, str(user_id), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax")
-    touch(user_id)
-    return user_id
-
-
-def require_age(user_id):
-    if db.get_user_metadata(user_id).get("age") is None:
-        raise HTTPException(409, "Add your age in the profile first")
+router = APIRouter(prefix="/api", tags=["reader"])
 
 
 def require_rag():
@@ -40,12 +24,12 @@ def require_rag():
     return engine.rag
 
 
-def get_name(user_id):
-    row = db.conn.execute("SELECT name FROM web_users WHERE user_id = ?", (user_id,)).fetchone()
-    return row[0] if row else None
+@router.get("/health", tags=["service"])
+def health():
+    return {"ok": True, "chat": engine.status}
 
 
-# ---------- profile ----------
+# ---------- account & profile ----------
 
 class ProfileIn(BaseModel):
     name: Optional[str] = Field(default=None, max_length=60)
@@ -53,33 +37,92 @@ class ProfileIn(BaseModel):
     language: str = Field(max_length=10)
 
 
-@router.get("/me")
-def get_me(user_id: int = Depends(current_user)):
+class ConsentIn(BaseModel):
+    version: str
+
+
+class DeleteIn(BaseModel):
+    password: str = Field(max_length=128)
+
+
+def me_out(account):
     with lock:
-        meta = db.get_user_metadata(user_id)
-        name = get_name(user_id)
-    return {"user_id": user_id, "name": name, **meta, "chat": engine.status}
+        profile = db.get_user_metadata(user_id_of(account["id"]))
+    return {**public_account(account), "age": profile["age"], "language": profile["language"], "chat": engine.status}
+
+
+@router.get("/me")
+def get_me(account: dict = Depends(current_account)):
+    return me_out(account)
 
 
 @router.put("/me")
-def put_me(body: ProfileIn, user_id: int = Depends(current_user)):
+def put_me(body: ProfileIn, account: dict = Depends(current_reader)):
     language = body.language.lower()
     if language not in LANGUAGES:
         raise HTTPException(422, "Unsupported language")
-    name = (body.name or "").strip() or None
     with lock:
-        db.save_user_profile(user_id, language=language, age=body.age)
+        db.save_user_profile(user_id_of(account["id"]), language=language, age=body.age)
+        db.conn.execute("UPDATE accounts SET name = ? WHERE id = ?", ((body.name or "").strip() or None, account["id"]))
+        db.conn.commit()
+    return me_out(get_account(account["id"]))
+
+
+@router.post("/me/consent")
+def accept_consent(body: ConsentIn, account: dict = Depends(current_account)):
+    if body.version != CONSENT_VERSION:
+        raise HTTPException(409, "The privacy policy has changed, reload the page to see the current version")
+    with lock:
         db.conn.execute(
-            "INSERT INTO web_users (user_id, name) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET name = excluded.name",
-            (user_id, name),
+            "UPDATE accounts SET consent_version = ?, consent_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (CONSENT_VERSION, account["id"]),
         )
         db.conn.commit()
-    return {"user_id": user_id, "name": name, "age": body.age, "language": language}
+    return me_out(get_account(account["id"]))
 
 
-@router.get("/health")
-def health():
-    return {"ok": True, "chat": engine.status}
+@router.get("/me/export")
+def export_my_data(account: dict = Depends(current_account)):
+    """Everything stored about the reader, as JSON (right of access)."""
+    user_id = user_id_of(account["id"])
+    titles = recommender.load_books().set_index("id")["Title"].to_dict()
+    with lock:
+        profile = db.get_user_metadata(user_id)
+        interactions = db.conn.execute(
+            "SELECT book_id, action, timestamp FROM user_interactions WHERE user_id = ? ORDER BY id", (user_id,)
+        ).fetchall()
+        sets = db.conn.execute(
+            "SELECT set_id, book_ids, timestamp FROM recommendation_sets WHERE user_id = ? ORDER BY set_id", (user_id,)
+        ).fetchall()
+        chat = [getattr(m, "content", str(m)) for m in (engine.rag.memory.get(user_id, [])[1:] if engine.rag else [])]
+    return {
+        "account": {k: v for k, v in public_account(account).items() if k != "consent_required"},
+        "profile": profile,
+        "reactions": [{"book": titles.get(b, b), "action": a, "at": t} for b, a, t in interactions],
+        "recommendations": [
+            {"at": t, "books": [titles.get(int(b), b) for b in ids.split(",") if b]} for _, ids, t in sets
+        ],
+        "current_chat": chat,
+    }
+
+
+@router.delete("/me")
+def delete_account(body: DeleteIn, account: dict = Depends(current_account)):
+    """Withdraws consent: removes the account and all personal data tied to it."""
+    if not verify_password(body.password, account["password_hash"]):
+        raise HTTPException(403, "Wrong password")
+    user_id = user_id_of(account["id"])
+    revoke_all(account["id"])
+    with lock:
+        for table in ("user_interactions", "recommendation_sets", "user_profiles"):
+            db.conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+        db.conn.execute("DELETE FROM refresh_tokens WHERE account_id = ?", (account["id"],))
+        db.conn.execute("DELETE FROM accounts WHERE id = ?", (account["id"],))
+        db.conn.commit()
+        if engine.rag is not None:
+            engine.rag.clear_history(user_id)
+    logger.info(f"Account {account['id']} deleted at the reader's request")
+    return {"ok": True}
 
 
 # ---------- chat (RAG + GigaChat) ----------
@@ -95,8 +138,8 @@ def update_profile_task(user_id):
 
 
 @router.post("/chat")
-def chat(body: ChatIn, tasks: BackgroundTasks, user_id: int = Depends(current_user)):
-    require_age(user_id)
+def chat(body: ChatIn, tasks: BackgroundTasks, account: dict = Depends(current_reader)):
+    user_id = user_id_of(account["id"])
     rag = require_rag()
     query = body.message.strip()
     # Same steps as RAGSystem.get_recommendation, split so the slow GigaChat call runs
@@ -124,20 +167,37 @@ def chat(body: ChatIn, tasks: BackgroundTasks, user_id: int = Depends(current_us
 
 
 @router.post("/chat/reset")
-def chat_reset(user_id: int = Depends(current_user)):
+def chat_reset(account: dict = Depends(current_reader)):
     with lock:
         if engine.rag is not None:
-            engine.rag.clear_history(user_id)
+            engine.rag.clear_history(user_id_of(account["id"]))
     return {"ok": True}
 
 
 # ---------- personal recommendations ----------
 
+def seen_books(user_id, recent_sets):
+    """Books to skip in For You: anything in the last few sets, plus everything already rated."""
+    rows = db.conn.execute(
+        "SELECT book_ids FROM recommendation_sets WHERE user_id = ? ORDER BY set_id DESC LIMIT ?", (user_id, recent_sets)
+    ).fetchall()
+    seen = {int(b) for (ids,) in rows for b in ids.split(",") if b}
+    seen.update(b for (b,) in db.conn.execute(
+        "SELECT book_id FROM user_interactions WHERE user_id = ? AND action IN ('like', 'dislike')", (user_id,)
+    ))
+    return seen
+
+
 @router.get("/recommendations")
-def recommendations(tasks: BackgroundTasks, user_id: int = Depends(current_user)):
-    require_age(user_id)
+def recommendations(tasks: BackgroundTasks, account: dict = Depends(current_reader)):
+    user_id = user_id_of(account["id"])
+    settings = load_settings().recsys
     with lock:
-        recs = recommender.recommend(user_id)
+        if db.get_user_metadata(user_id).get("age") is None:
+            raise HTTPException(409, "Add your age in the profile first")
+        recs = recommender.recommend(
+            user_id, exclude=seen_books(user_id, settings.skip_recent_sets), pool_size=settings.pool_size
+        )
         books = [book for book, _ in recs]
         set_id = db.save_recommendation_set(user_id, [int(book_id) for _, book_id in recs])
     tasks.add_task(prefetch_links, [book_id for _, book_id in recs])
@@ -158,7 +218,8 @@ def bump_counts(book_ids, column):
 
 
 @router.post("/feedback")
-def feedback(body: FeedbackIn, tasks: BackgroundTasks, user_id: int = Depends(current_user)):
+def feedback(body: FeedbackIn, tasks: BackgroundTasks, account: dict = Depends(current_reader)):
+    user_id = user_id_of(account["id"])
     with lock:
         row = db.conn.execute(
             "SELECT book_ids FROM recommendation_sets WHERE set_id = ? AND user_id = ?",
@@ -186,6 +247,15 @@ def genres(limit: int = 12):
     return [{"name": name, "count": int(n)} for name, n in genre_counts(df).head(limit).items()]
 
 
+@router.get("/books/{book_id}/open")
+def open_book(book_id: int):
+    """Public on purpose: books open in a new tab via a plain link, which can't carry a bearer token."""
+    url = book_link(book_id)
+    if url is None:
+        raise HTTPException(404, "Book not found")
+    return RedirectResponse(url, status_code=302)
+
+
 class BookIn(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     author: str = Field(min_length=1, max_length=200)
@@ -195,16 +265,8 @@ class BookIn(BaseModel):
     link: Optional[str] = Field(default=None, max_length=500, pattern=r"^(https?://\S+)?$")
 
 
-@router.get("/books/{book_id}/open")
-def open_book(book_id: int):
-    url = book_link(book_id)
-    if url is None:
-        raise HTTPException(404, "Book not found")
-    return RedirectResponse(url, status_code=302)
-
-
 @router.post("/books", status_code=201)
-def add_book(body: BookIn, user_id: int = Depends(current_user)):
+def add_book(body: BookIn, account: dict = Depends(current_reader)):
     rag = require_rag()
     new_book = {
         "Title": body.title.strip(),

@@ -1,18 +1,24 @@
-"""Books Advisor web: the reader app at / and the admin console at /admin."""
+"""Books Advisor web: the reader app at /, the admin console at /admin, the API under /api (docs at /docs)."""
 import os
 import threading
+from html import escape
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from web import admin_api, user_api
+from web import admin_api, auth, user_api
 from web.core import apply_settings, load_rag, load_settings
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="Books Advisor")
+app = FastAPI(
+    title="Books Advisor",
+    description="Book recommendations with RAG and a recommender. Sign in via /api/auth/login and send "
+                "`Authorization: Bearer <access_token>`; renew it with /api/auth/refresh.",
+)
+app.include_router(auth.router)
 app.include_router(user_api.router)
 app.include_router(admin_api.router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -20,18 +26,32 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.on_event("startup")
 def startup():
+    auth.ensure_admin()
     apply_settings(load_settings())
     threading.Thread(target=load_rag, daemon=True).start()
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def user_page():
     return FileResponse(STATIC_DIR / "user.html")
 
 
-@app.get("/admin")
+@app.get("/admin", include_in_schema=False)
 def admin_page():
     return FileResponse(STATIC_DIR / "admin.html")
+
+
+@app.get("/privacy", include_in_schema=False)
+def privacy_page():
+    html = (Path(__file__).resolve().parent / "templates" / "privacy.html").read_text(encoding="utf-8")
+    values = {
+        "version": auth.CONSENT_VERSION,
+        "operator": os.getenv("PRIVACY_OPERATOR", "the operator of this Books Advisor installation"),
+        "contact": os.getenv("PRIVACY_CONTACT", "the administrator of this installation"),
+    }
+    for key, value in values.items():
+        html = html.replace("{{" + key + "}}", escape(value))
+    return HTMLResponse(html)
 
 
 if __name__ == "__main__":

@@ -136,6 +136,7 @@ function renderIdentity() {
   const lang = $(`#p-lang option[value="${state.me.language}"]`);
   $("#profile-sub").textContent = age ? `${age} years · ${lang ? lang.textContent : "English"}` : "Not set up yet";
   $("#profile-alert").hidden = Boolean(age);
+  $("#profile-email").textContent = state.me.email || "";
 }
 
 function fillProfile() {
@@ -360,17 +361,138 @@ $("#add-form").onsubmit = async (e) => {
   }
 };
 
-// ---------- start ----------
+// ---------- account: sign in, sign up, consent ----------
 
-(async function init() {
+let consentVersion = null;
+const screens = { auth: $("#auth"), consent: $("#consent-screen"), app: $("#app") };
+
+function showScreen(name) {
+  for (const [key, node] of Object.entries(screens)) node.hidden = key !== name;
+  window.scrollTo({ top: 0 });
+}
+
+function showAuth(tab = "signin") {
+  showScreen("auth");
+  $$("[data-auth]").forEach((b) => b.setAttribute("aria-selected", b.dataset.auth === tab));
+  $("#signin-form").hidden = tab !== "signin";
+  $("#signup-form").hidden = tab !== "signup";
+  const browser = (navigator.language || "en").slice(0, 2);
+  if ($(`#su-lang option[value="${browser}"]`)) $("#su-lang").value = browser;
+}
+
+function showConsent() {
+  showScreen("consent");
+  $("#re-consent").checked = false;
+  $("#re-consent-btn").disabled = true;
+}
+
+$$("[data-auth]").forEach((b) => (b.onclick = () => showAuth(b.dataset.auth)));
+$("#su-consent").onchange = (e) => ($("#signup-btn").disabled = !e.target.checked);
+$("#re-consent").onchange = (e) => ($("#re-consent-btn").disabled = !e.target.checked);
+
+async function withButton(btn, fn) {
+  btn.disabled = true;
+  try { await fn(); } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+}
+
+$("#signin-form").onsubmit = (e) => {
+  e.preventDefault();
+  withButton($("#signin-btn"), async () => {
+    const res = await api("/api/auth/login", { method: "POST", body: { email: $("#si-email").value, password: $("#si-password").value } });
+    setTokens(res);
+    $("#si-password").value = "";
+    await enter();
+  });
+};
+
+$("#signup-form").onsubmit = (e) => {
+  e.preventDefault();
+  withButton($("#signup-btn"), async () => {
+    if (!consentVersion) consentVersion = (await api("/api/auth/consent")).version;
+    const res = await api("/api/auth/register", {
+      method: "POST",
+      body: {
+        name: $("#su-name").value, email: $("#su-email").value, password: $("#su-password").value,
+        age: Number($("#su-age").value), language: $("#su-lang").value,
+        consent: $("#su-consent").checked, consent_version: consentVersion,
+      },
+    });
+    setTokens(res);
+    $("#su-password").value = "";
+    toast("Welcome to Books Advisor!");
+    await enter();
+  });
+};
+
+$("#re-consent-btn").onclick = () => withButton($("#re-consent-btn"), async () => {
+  state.me = await api("/api/me/consent", { method: "POST", body: { version: consentVersion } });
+  await enter();
+});
+$("#re-consent-signout").onclick = async () => { await signOut(); showAuth(); };
+
+$("#signout-btn").onclick = async () => {
+  if (!(await confirmDialog("Sign out?", "You can sign back in any time with your email and password.", "Sign out"))) return;
+  await signOut();
+  resetApp();
+  showAuth();
+};
+
+$("#export-btn").onclick = () => withButton($("#export-btn"), async () => {
+  const data = await api("/api/me/export");
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  el("a", { href: url, download: "books-advisor-my-data.json" }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+$("#delete-btn").onclick = () => { $("#del-password").value = ""; $("#delete-dialog").hidden = false; $("#del-password").focus(); };
+$("#delete-cancel").onclick = () => ($("#delete-dialog").hidden = true);
+$("#delete-form").onsubmit = async (e) => {
+  e.preventDefault();
   try {
-    state.me = await api("/api/me");
-    setChatStatus(state.me.chat);
+    await api("/api/me", { method: "DELETE", body: { password: $("#del-password").value } });
+    $("#delete-dialog").hidden = true;
+    clearTokens();
+    resetApp();
+    showAuth("signup");
+    toast("Your account and data were deleted");
   } catch (err) {
     toast(err.message);
   }
+};
+
+// Forget everything from the previous reader when the account changes
+function resetApp() {
+  state.me = {};
+  state.loaded.clear();
+  $("#messages").replaceChildren($("#chat-empty"));
+  $("#chat-empty").hidden = false;
+  $("#forme-body").replaceChildren();
+}
+
+async function enter() {
+  state.me = await api("/api/me");
+  if (state.me.consent_required) return showConsent();
+  showScreen("app");
+  setChatStatus(state.me.chat);
   renderIdentity();
   fillProfile();
-  showView(state.me.age ? location.hash.slice(1) || "chat" : "profile");
+  showView(location.hash.slice(1) || "chat");
+}
+
+session.key = "ba.refresh";
+session.onSignedOut = () => { resetApp(); showAuth(); };
+session.onConsentRequired = showConsent;
+
+// ---------- start ----------
+
+(async function init() {
+  api("/api/auth/consent").then((c) => (consentVersion = c.version)).catch(() => {});
+  try {
+    if (await refreshSession()) await enter();
+    else showAuth();
+  } catch (err) {
+    toast(err.message);
+    showAuth();
+  }
   setTimeout(pollHealth, 4000);
 })();

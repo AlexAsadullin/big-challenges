@@ -36,24 +36,72 @@ function ago(ts) {
   return ts.slice(0, 10);
 }
 
-async function api(path, opts = {}) {
+// ---------- session: access token in memory, refresh token in localStorage ----------
+
+const session = { access: null, key: "ba.refresh", onSignedOut: null, onConsentRequired: null, refreshing: null };
+
+function readRefresh() { try { return localStorage.getItem(session.key); } catch { return null; } }
+
+function setTokens(tokens) {
+  session.access = tokens.access_token;
+  try { localStorage.setItem(session.key, tokens.refresh_token); } catch {}
+}
+
+function clearTokens() {
+  session.access = null;
+  try { localStorage.removeItem(session.key); } catch {}
+}
+
+// One refresh at a time: parallel 401s all wait for the same rotation
+function refreshSession() {
+  if (session.refreshing) return session.refreshing;
+  session.refreshing = (async () => {
+    const token = readRefresh();
+    if (!token) return false;
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: token }),
+      });
+      if (!res.ok) { clearTokens(); return false; }
+      setTokens(await res.json());
+      return true;
+    } catch {
+      return false;
+    }
+  })().finally(() => (session.refreshing = null));
+  return session.refreshing;
+}
+
+async function signOut() {
+  const token = readRefresh();
+  clearTokens();
+  if (token) await api("/api/auth/logout", { method: "POST", body: { refresh_token: token } }).catch(() => {});
+}
+
+async function api(path, opts = {}, retried = false) {
+  const headers = {};
+  if (opts.body) headers["Content-Type"] = "application/json";
+  if (session.access) headers.Authorization = `Bearer ${session.access}`;
   let res;
   try {
-    res = await fetch(path, {
-      ...opts,
-      headers: opts.body ? { "Content-Type": "application/json" } : undefined,
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
+    res = await fetch(path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
   } catch {
     setOnline(false);
     throw new Error("No connection to the server");
   }
   setOnline(true);
+  if (res.status === 401 && !retried && !path.startsWith("/api/auth/")) {
+    if (await refreshSession()) return api(path, opts, true);
+    clearTokens();
+    if (session.onSignedOut) session.onSignedOut();
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? "Please check the highlighted fields" : data.detail;
     const err = new Error(detail || `Error ${res.status}`);
     err.status = res.status;
+    err.code = typeof data.detail === "string" ? data.detail : null;
+    if (err.code === "consent_required" && session.onConsentRequired) session.onConsentRequired();
     throw err;
   }
   return data;

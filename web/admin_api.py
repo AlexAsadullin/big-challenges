@@ -1,45 +1,17 @@
-"""API for the admin console. Enabled only when ADMIN_PASSWORD is set."""
-import hashlib
-import hmac
-import os
-import secrets
+"""API for the admin console. Needs a bearer access token of an account with the admin role."""
 import sqlite3
-import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
 
+from web.auth import current_admin
 from web.core import (
     AGE_BUCKETS, DB_PATH, Settings, book_out, engine, genre_counts, load_settings, query_books,
     recommender, save_settings,
 )
 
-router = APIRouter(prefix="/api/admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
-# Without SESSION_SECRET, admin sessions simply end when the server restarts
-SECRET = (os.getenv("SESSION_SECRET") or secrets.token_hex(32)).encode()
-COOKIE = "admin_session"
-SESSION_TTL = 12 * 60 * 60
-
-
-def sign(expires: int) -> str:
-    return hmac.new(SECRET, str(expires).encode(), hashlib.sha256).hexdigest()
-
-
-def session_valid(token) -> bool:
-    if not token or "." not in token:
-        return False
-    expires, sig = token.split(".", 1)
-    return expires.isdigit() and int(expires) > time.time() and hmac.compare_digest(sig, sign(int(expires)))
-
-
-def require_admin(request: Request):
-    if not ADMIN_PASSWORD:
-        raise HTTPException(503, "Admin console is disabled: set the ADMIN_PASSWORD environment variable")
-    if not session_valid(request.cookies.get(COOKIE)):
-        raise HTTPException(401, "Sign in to continue")
+router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(current_admin)])
 
 
 def ro():
@@ -47,42 +19,13 @@ def ro():
     return closing(sqlite3.connect(DB_PATH))
 
 
-# ---------- session ----------
-
-class LoginIn(BaseModel):
-    password: str
-
-
-@router.get("/session")
-def session(request: Request):
-    return {"enabled": bool(ADMIN_PASSWORD), "signed_in": bool(ADMIN_PASSWORD) and session_valid(request.cookies.get(COOKIE))}
-
-
-@router.post("/login")
-def login(body: LoginIn, response: Response):
-    if not ADMIN_PASSWORD:
-        raise HTTPException(503, "Admin console is disabled: set the ADMIN_PASSWORD environment variable")
-    if not hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode()):
-        time.sleep(1)  # slows down password guessing
-        raise HTTPException(401, "Wrong password")
-    expires = int(time.time()) + SESSION_TTL
-    response.set_cookie(COOKIE, f"{expires}.{sign(expires)}", max_age=SESSION_TTL, httponly=True, samesite="strict")
-    return {"ok": True}
-
-
-@router.post("/logout")
-def logout(response: Response):
-    response.delete_cookie(COOKIE)
-    return {"ok": True}
-
-
 # ---------- users ----------
 
 USERS_SQL = """
-WITH ids AS (SELECT user_id FROM user_profiles UNION SELECT user_id FROM web_users)
+WITH ids AS (SELECT user_id FROM user_profiles UNION SELECT -id FROM accounts WHERE role = 'user')
 SELECT
-    ids.user_id, w.name, p.age, p.language, w.created_at,
-    MAX(COALESCE(w.last_seen, ''),
+    ids.user_id, a.email, a.name, p.age, p.language, a.created_at, a.consent_at,
+    MAX(COALESCE(a.last_seen, ''),
         COALESCE((SELECT MAX(timestamp) FROM recommendation_sets s WHERE s.user_id = ids.user_id), '')) AS last_active,
     (SELECT COUNT(*) FROM recommendation_sets s WHERE s.user_id = ids.user_id) AS sets,
     (SELECT COUNT(*) FROM user_interactions i WHERE i.user_id = ids.user_id AND i.action = 'like') AS likes,
@@ -90,9 +33,11 @@ SELECT
     (SELECT COUNT(*) FROM user_interactions i WHERE i.user_id = ids.user_id AND i.action = 'view') AS views
 FROM ids
 LEFT JOIN user_profiles p ON p.user_id = ids.user_id
-LEFT JOIN web_users w ON w.user_id = ids.user_id
+LEFT JOIN accounts a ON a.id = -ids.user_id
 """
-USER_COLUMNS = ["id", "name", "age", "language", "created_at", "last_active", "sets", "likes", "dislikes", "views"]
+USER_COLUMNS = [
+    "id", "email", "name", "age", "language", "created_at", "consent_at", "last_active", "sets", "likes", "dislikes", "views",
+]
 
 
 def fetch_users(where="", params=()):
@@ -111,14 +56,17 @@ def days_ago(n):
     return (datetime.now(timezone.utc) - timedelta(days=n)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-@router.get("/users", dependencies=[Depends(require_admin)])
+@router.get("/users")
 def users(q: str = "", source: str = "all", sort: str = "last_active"):
     result = fetch_users()
     if source in ("web", "telegram"):
         result = [u for u in result if u["source"] == source]
     if q:
         needle = q.lower().strip()
-        result = [u for u in result if needle in (u["name"] or "").lower() or needle in str(u["id"])]
+        result = [
+            u for u in result
+            if needle in (u["name"] or "").lower() or needle in (u["email"] or "").lower() or needle in str(u["id"])
+        ]
     if sort not in ("last_active", "sets", "likes", "dislikes", "age", "name"):
         sort = "last_active"
     if sort == "name":
@@ -128,7 +76,7 @@ def users(q: str = "", source: str = "all", sort: str = "last_active"):
     return {"total": len(result), "users": result[:500]}
 
 
-@router.get("/users/{user_id}", dependencies=[Depends(require_admin)])
+@router.get("/users/{user_id}")
 def user_detail(user_id: int):
     found = fetch_users(" WHERE ids.user_id = ?", (user_id,))
     if not found:
@@ -157,7 +105,7 @@ def user_detail(user_id: int):
 
 # ---------- overview ----------
 
-@router.get("/overview", dependencies=[Depends(require_admin)])
+@router.get("/overview")
 def overview():
     all_users = fetch_users()
     df = recommender.load_books()
@@ -205,7 +153,7 @@ def overview():
 
 # ---------- books ----------
 
-@router.get("/books", dependencies=[Depends(require_admin)])
+@router.get("/books")
 def books(q: str = "", genre: str = "", sort: str = "newest", offset: int = 0, limit: int = 50):
     limit = max(1, min(limit, 200))
     offset = max(offset, 0)
@@ -216,18 +164,18 @@ def books(q: str = "", genre: str = "", sort: str = "newest", offset: int = 0, l
 
 # ---------- settings ----------
 
-@router.get("/settings", dependencies=[Depends(require_admin)])
+@router.get("/settings")
 def get_settings():
     return {"settings": load_settings().model_dump(), "defaults": Settings().model_dump(), "engine": engine.status}
 
 
-@router.put("/settings", dependencies=[Depends(require_admin)])
+@router.put("/settings")
 def put_settings(body: Settings):
     save_settings(body)
     return {"settings": body.model_dump()}
 
 
-@router.post("/settings/reset", dependencies=[Depends(require_admin)])
+@router.post("/settings/reset")
 def reset_settings():
     save_settings(Settings())
     return {"settings": Settings().model_dump()}

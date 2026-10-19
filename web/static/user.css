@@ -110,3 +110,20 @@ a.book:focus-visible, a.pick:focus-visible { outline: none; box-shadow: 0 0 0 3p
 a.book:hover .ext, a.pick:hover .ext { color: var(--accent); }
 a.pick { padding-right: 36px; }
 a.pick + a.pick { margin-top: 10px; }
+
+/* sign-in, sign-up and consent screens */
+.gate { max-width: 440px; margin: 0 auto; min-height: 100dvh; padding: calc(env(safe-area-inset-top) + 40px) 16px 40px; }
+.gate-head { text-align: center; margin-bottom: 22px; }
+.gate-head h1 { font-size: 26px; margin: 4px 0 6px; letter-spacing: -0.02em; }
+.gate .segmented {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px;
+  background: var(--field); border-radius: 12px; margin-bottom: 14px;
+}
+.gate .segmented button {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font: 600 15px/1 var(--font); padding: 10px; border-radius: 9px; transition: background 0.15s, color 0.15s;
+}
+.gate .segmented button[aria-selected="true"] { background: var(--panel); color: var(--ink); box-shadow: var(--shadow-raised); }
+.consent { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; cursor: pointer; }
+.consent input { width: 18px; height: 18px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
+.consent a, .card a:not(.btn) { color: var(--accent); }

@@ -81,3 +81,4 @@
   .split .detail { position: static; max-height: none; }
   .main { padding: 20px 16px 48px; }
 }
+td.nowrap { white-space: nowrap; }

@@ -12,7 +12,58 @@
   <link rel="stylesheet" href="/static/user.css">
 </head>
 <body>
-<div class="app" id="app" data-view="chat">
+<!-- Signed out: sign in / create account -->
+<div class="gate" id="auth" hidden>
+  <div class="gate-head">
+    <div class="empty-art"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></svg></div>
+    <h1>Books Advisor</h1>
+    <p class="muted">Your personal librarian: ask for a mood, get five books worth reading.</p>
+  </div>
+  <div class="segmented" role="tablist">
+    <button type="button" role="tab" data-auth="signin" aria-selected="true">Sign in</button>
+    <button type="button" role="tab" data-auth="signup" aria-selected="false">Create account</button>
+  </div>
+  <form class="card form-stack enter" id="signin-form">
+    <div class="field"><label for="si-email">Email</label><input class="input" id="si-email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="si-password">Password</label><input class="input" id="si-password" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary" id="signin-btn">Sign in</button>
+  </form>
+  <form class="card form-stack enter" id="signup-form" hidden>
+    <div class="field"><label for="su-name">Name <span class="hint">optional</span></label><input class="input" id="su-name" maxlength="60" autocomplete="nickname" placeholder="How should we call you?"></div>
+    <div class="field"><label for="su-email">Email</label><input class="input" id="su-email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="su-password">Password</label><input class="input" id="su-password" type="password" autocomplete="new-password" minlength="8" required>
+      <span class="hint">At least 8 characters.</span></div>
+    <div class="row" style="gap:12px;flex-wrap:nowrap">
+      <div class="field" style="flex:1"><label for="su-age">Age</label><input class="input num" id="su-age" type="number" min="5" max="110" inputmode="numeric" required placeholder="25"></div>
+      <div class="field" style="flex:2"><label for="su-lang">Language</label><select class="select" id="su-lang">
+              <option value="en">English</option><option value="ru">Russian</option><option value="de">German</option>
+              <option value="fr">French</option><option value="es">Spanish</option><option value="it">Italian</option>
+              <option value="pt">Portuguese</option><option value="uk">Ukrainian</option><option value="kk">Kazakh</option>
+              <option value="zh">Chinese</option><option value="ja">Japanese</option><option value="tr">Turkish</option>
+            </select></div>
+    </div>
+    <label class="consent"><input type="checkbox" id="su-consent" required>
+      <span>I agree to the processing of my personal data as described in the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
+    <button class="btn primary" id="signup-btn" disabled>Create account</button>
+  </form>
+</div>
+
+<!-- Signed in, but the privacy policy changed since they accepted it -->
+<div class="gate" id="consent-screen" hidden>
+  <div class="gate-head">
+    <div class="empty-art"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></svg></div>
+    <h1>We've updated our Privacy Policy</h1>
+    <p class="muted">Please review how we handle your personal data. You need to accept the new version to keep using Books Advisor.</p>
+  </div>
+  <div class="card form-stack">
+    <a class="btn" href="/privacy" target="_blank" rel="noopener">Read the Privacy Policy ↗</a>
+    <label class="consent"><input type="checkbox" id="re-consent"><span>I agree to the processing of my personal data under the updated policy.</span></label>
+    <button class="btn primary" id="re-consent-btn" disabled>Accept and continue</button>
+    <button class="btn ghost" id="re-consent-signout">Sign out instead</button>
+  </div>
+</div>
+
+<div class="app" id="app" data-view="chat" hidden>
   <header class="appbar">
     <div class="appbar-titles">
       <p class="eyebrow" id="eyebrow">Books Advisor</p>
@@ -95,6 +146,7 @@
           <div>
             <h2 id="profile-name">Reader</h2>
             <p class="muted small" id="profile-sub">Not set up yet</p>
+            <p class="muted small" id="profile-email"></p>
           </div>
         </div>
         <div class="form-stack">
@@ -112,6 +164,13 @@
           <button class="btn primary" id="profile-save">Save profile</button>
         </div>
       </form>
+      <div class="card form-stack">
+        <h2>Your data</h2>
+        <p class="muted small">We store your account, profile, reactions and recommendation history to personalise picks. See the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</p>
+        <button class="btn" id="export-btn">Download my data</button>
+        <button class="btn" id="signout-btn">Sign out</button>
+        <button class="btn danger" id="delete-btn">Delete account</button>
+      </div>
       <div class="card">
         <div class="list-row"><span>Advisor</span><span class="badge" id="engine-badge">Loading</span></div>
         <div class="list-row"><span>Connection</span><span class="badge ok" id="conn-text">Online</span></div>
@@ -140,6 +199,18 @@
       <button class="btn danger" id="confirm-yes">Confirm</button>
     </div>
   </div>
+</div>
+<div class="backdrop" id="delete-dialog" hidden>
+  <form class="dialog pop" id="delete-form">
+    <h2>Delete your account?</h2>
+    <p class="muted">This withdraws your consent and permanently deletes your account, profile, reactions and history. It can't be undone.</p>
+    <div class="field" style="margin-top:14px"><label for="del-password">Confirm with your password</label>
+      <input class="input" id="del-password" type="password" autocomplete="current-password" required></div>
+    <div class="row end">
+      <button type="button" class="btn ghost" id="delete-cancel">Cancel</button>
+      <button class="btn danger">Delete forever</button>
+    </div>
+  </form>
 </div>
 <div class="toast" id="toast" hidden></div>
 <script src="/static/common.js"></script>

@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from cfg import API_KEY, CSV_PATH, DB_PATH  # noqa: E402
+from cfg import API_KEY, CSV_PATH, DB_PATH, INDEX_PATH  # noqa: E402
 from db import Database  # noqa: E402
 from recsys import DEFAULT_WEIGHTS, RecommendationSystem  # noqa: E402
 
@@ -49,12 +49,6 @@ engine = Engine()
 with lock:
     db.conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS web_users (
-            user_id INTEGER PRIMARY KEY,
-            name TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
         CREATE TABLE IF NOT EXISTS web_settings (
             key TEXT PRIMARY KEY,
             value TEXT
@@ -90,6 +84,8 @@ class LLMSettings(BaseModel):
 
 class RecsysSettings(BaseModel):
     top_k: int = Field(5, ge=1, le=20)
+    pool_size: int = Field(40, ge=1, le=500)
+    skip_recent_sets: int = Field(5, ge=0, le=50)
     like: float = Field(DEFAULT_WEIGHTS["like"], ge=0, le=10)
     view: float = Field(DEFAULT_WEIGHTS["view"], ge=0, le=10)
     dislike: float = Field(DEFAULT_WEIGHTS["dislike"], ge=0, le=10)
@@ -131,7 +127,7 @@ def apply_settings(settings: Settings):
     with lock:
         rec = settings.recsys
         recommender.top_k = rec.top_k
-        recommender.weights.update(rec.model_dump(exclude={"top_k"}))
+        recommender.weights.update(rec.model_dump(exclude={"top_k", "pool_size", "skip_recent_sets"}))
         rag = engine.rag
         if rag is None:
             return
@@ -148,12 +144,26 @@ def apply_settings(settings: Settings):
             memory[0] = engine.rag_module.SystemMessage(content=llm.system_prompt)
 
 
+def drop_stale_index():
+    """rag.py reuses an existing FAISS index as is; if the CSV changed size, rebuild it instead."""
+    if not Path(INDEX_PATH).exists():
+        return
+    import faiss
+
+    books = len(pd.read_csv(CSV_PATH, usecols=["id"]))
+    indexed = faiss.read_index(INDEX_PATH).ntotal
+    if indexed != books:
+        logger.warning(f"FAISS index has {indexed} vectors but the catalog has {books} books: rebuilding it")
+        Path(INDEX_PATH).unlink()
+
+
 def load_rag():
     """Loads RAG in the background: models and the FAISS index are slow, and the rest of the app works without them."""
     if not API_KEY or API_KEY == "...":
         engine.status = {"state": "unavailable", "error": "API_KEY for GigaChat is not set"}
         return
     try:
+        drop_stale_index()
         import rag as rag_module
 
         instance = rag_module.RAGSystem(CSV_PATH, API_KEY, db)
@@ -166,28 +176,6 @@ def load_rag():
     except Exception as e:
         logger.error(f"Failed to load RAG: {e}\n{traceback.format_exc()}")
         engine.status = {"state": "unavailable", "error": str(e)}
-
-
-# ---------- users ----------
-
-_last_touch = {}
-
-
-def touch(user_id):
-    """Records web-user activity, at most once a minute per user."""
-    now = time.monotonic()
-    if now - _last_touch.get(user_id, -1e9) < 60:
-        return
-    _last_touch[user_id] = now
-    with lock:
-        db.conn.execute(
-            """
-            INSERT INTO web_users (user_id) VALUES (?)
-            ON CONFLICT(user_id) DO UPDATE SET last_seen = CURRENT_TIMESTAMP
-            """,
-            (user_id,),
-        )
-        db.conn.commit()
 
 
 # ---------- books ----------
@@ -279,6 +267,7 @@ def query_books(q="", genre="", sort="title", offset=0, limit=50) -> pd.DataFram
 # Books open on Open Library: free, no registration, and work pages carry the description.
 
 OPEN_LIBRARY = "https://openlibrary.org"
+SERIES_SUFFIX = re.compile(r"\s*\([^()]*#\s*[\d.]+[^()]*\)\s*$")
 
 
 def open_library_search_url(title, author):
@@ -291,6 +280,8 @@ def find_open_library_work(title, author):
     A free-text query ranks the canonical work first even when it's filed under its original
     title ("Nineteen Eighty-Four", "Le petit prince"); title-field search returns adaptations.
     """
+    title = SERIES_SUFFIX.sub("", title)  # "Twilight (Twilight, #1)" -> "Twilight"
+    author = author.split(",")[0]  # first author is enough to find the work
     try:
         res = requests.get(
             f"{OPEN_LIBRARY}/search.json",

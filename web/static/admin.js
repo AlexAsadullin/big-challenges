@@ -13,23 +13,18 @@ const state = {
 };
 const PAGE = 50;
 
-async function adminApi(path, opts) {
-  try {
-    return await api(path, opts);
-  } catch (err) {
-    if (err.status === 401) showLogin();
-    throw err;
-  }
-}
+const adminApi = (path, opts) => api(path, opts);
 
 // ---------- session ----------
 
-function showLogin(disabled = false) {
+session.key = "ba.admin.refresh";
+session.onSignedOut = () => showLogin();
+
+function showLogin(denied = false) {
   $("#console").hidden = true;
   $("#login").hidden = false;
-  $("#login-disabled").hidden = !disabled;
-  $("#login-fields").hidden = disabled;
-  if (!disabled) $("#password").focus();
+  $("#login-denied").hidden = !denied;
+  $("#email").focus();
 }
 
 function showConsole() {
@@ -40,13 +35,23 @@ function showConsole() {
   pollHealth();
 }
 
+// Signed in, but only admins get the console
+async function enterConsole() {
+  const me = await api("/api/me");
+  if (me.role !== "admin") {
+    await signOut();
+    return showLogin(true);
+  }
+  showConsole();
+}
+
 $("#login-form").onsubmit = async (e) => {
   e.preventDefault();
   $("#login-btn").disabled = true;
   try {
-    await api("/api/admin/login", { method: "POST", body: { password: $("#password").value } });
+    setTokens(await api("/api/auth/login", { method: "POST", body: { email: $("#email").value, password: $("#password").value } }));
     $("#password").value = "";
-    showConsole();
+    await enterConsole();
   } catch (err) {
     toast(err.message);
     $("#password").select();
@@ -56,7 +61,7 @@ $("#login-form").onsubmit = async (e) => {
 };
 
 $("#logout-btn").onclick = async () => {
-  await api("/api/admin/logout", { method: "POST" }).catch(() => {});
+  await signOut();
   showLogin();
 };
 
@@ -155,21 +160,22 @@ async function loadUsers() {
   $("#users-sub").textContent = `${fmt(res.total)} ${res.total === 1 ? "user" : "users"}`;
   $("#user-rows").replaceChildren(...(res.users.length ? res.users.map((x) => {
     const tr = el("tr", { class: u.active === x.id ? "active" : null },
-      el("td", {}, el("div", { class: "cell-title" }, userName(x)), el("div", { class: "muted small num" }, `id ${x.id}`)),
+      el("td", {}, el("div", { class: "cell-title" }, userName(x)), el("div", { class: "muted small" }, x.email || `id ${x.id}`)),
       el("td", {}, sourceBadge(x.source)),
       el("td", { class: "num" }, x.age ?? "—"),
       el("td", {}, langName(x.language)),
       el("td", { class: "num" }, fmt(x.sets)),
       el("td", { class: "num" }, fmt(x.likes)),
       el("td", { class: "num" }, fmt(x.dislikes)),
-      el("td", { class: "small", title: x.last_active || "" }, ago(x.last_active)));
+      el("td", { class: "small nowrap", title: x.consent_at || "" }, x.consent_at ? x.consent_at.slice(0, 10) : x.source === "web" ? "—" : "Telegram"),
+      el("td", { class: "small nowrap", title: x.last_active || "" }, ago(x.last_active)));
     tr.onclick = () => {
       u.active = x.id;
       $$("#user-rows tr").forEach((r) => r.classList.toggle("active", r === tr));
       showUser(x.id);
     };
     return tr;
-  }) : [el("tr", {}, el("td", { colspan: 8, class: "muted" }, "No users match"))]));
+  }) : [el("tr", {}, el("td", { colspan: 9, class: "muted" }, "No users match"))]));
 }
 
 async function showUser(id) {
@@ -182,7 +188,7 @@ async function showUser(id) {
   box.replaceChildren(el("div", { class: "enter" },
     el("div", { class: "row", style: "gap:12px;margin-bottom:12px" },
       el("div", { class: "avatar" }, (d.name || "?").slice(0, 1).toUpperCase()),
-      el("div", {}, el("h3", { style: "margin:0" }, userName(d)), el("div", { class: "muted small num" }, `id ${d.id}`))),
+      el("div", {}, el("h3", { style: "margin:0" }, userName(d)), el("div", { class: "muted small" }, d.email || `id ${d.id}`))),
     el("div", { class: "badges" }, sourceBadge(d.source),
       d.age != null ? el("span", { class: "badge neutral" }, `${d.age} years`) : null,
       d.language ? el("span", { class: "badge neutral" }, langName(d.language)) : null),
@@ -190,6 +196,7 @@ async function showUser(id) {
       kpiTile(fmt(d.sets), "sets"), kpiTile(fmt(d.likes), "likes"), kpiTile(fmt(d.dislikes), "dislikes")),
     el("p", { class: "muted small", style: "margin-top:12px" },
       `Last active ${ago(d.last_active)}`, d.created_at ? ` · joined ${d.created_at.slice(0, 10)}` : "",
+      d.consent_at ? ` · consented ${d.consent_at.slice(0, 10)}` : "",
       d.chat_messages != null ? ` · ${d.chat_messages} messages in the current chat` : ""),
     el("h4", {}, "Liked"), list(d.liked, "No likes yet"),
     el("h4", {}, "Disliked"), list(d.disliked, "No dislikes yet"),
@@ -296,6 +303,8 @@ const LLM_FIELDS = [
 ];
 const REC_FIELDS = [
   { key: "top_k", label: "Books per set", hint: "How many books For You returns.", min: 1, max: 20, step: 1 },
+  { key: "pool_size", label: "Variety pool", hint: "Each set is drawn at random from this many top-ranked books; 5 means always the strict top.", min: 1, max: 200, step: 1 },
+  { key: "skip_recent_sets", label: "Skip recent sets", hint: "Books from this many of the reader's latest sets aren't repeated.", min: 0, max: 20, step: 1 },
   { key: "like", label: "Like weight", hint: "Cold start: score per like.", min: 0, max: 5, step: 0.05 },
   { key: "view", label: "View weight", hint: "Cold start: score per view.", min: 0, max: 5, step: 0.05 },
   { key: "dislike", label: "Dislike penalty", hint: "Cold start: subtracted per dislike.", min: 0, max: 5, step: 0.05 },
@@ -391,11 +400,10 @@ window.addEventListener("beforeunload", (e) => { if (isDirty()) e.preventDefault
 
 (async function init() {
   try {
-    const s = await api("/api/admin/session");
-    if (!s.enabled) showLogin(true);
-    else if (!s.signed_in) showLogin();
-    else showConsole();
+    if (await refreshSession()) await enterConsole();
+    else showLogin();
   } catch (err) {
     toast(err.message);
+    showLogin();
   }
 })();
