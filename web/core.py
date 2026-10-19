@@ -2,6 +2,7 @@
 import json
 import logging
 import math
+import re
 import sqlite3
 import sys
 import threading
@@ -199,6 +200,33 @@ def clean(value):
     return value
 
 
+SENTENCE_END = re.compile(r"(?<=[.!?…])[\"'”»)]?\s+(?=[\"'“«(]?[A-ZА-ЯЁ0-9])")
+
+
+NOT_AN_END = re.compile(r"(?:\b(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Mt|vs|etc|No|Vol|i\.e|e\.g)|\b[A-ZА-Я])\.$")
+
+
+def summarize(text, max_chars=240):
+    """First one or two sentences of a description, for book tiles."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    text = " ".join(text.split())
+    sentences = []
+    for part in SENTENCE_END.split(text):
+        # "Dr. Watson", "J. R. R. Tolkien": an abbreviation or initial isn't a sentence end
+        if sentences and NOT_AN_END.search(sentences[-1]):
+            sentences[-1] += " " + part
+        else:
+            sentences.append(part)
+    summary = sentences[0]
+    # A short first sentence ("A classic.") says little, so add the second one
+    if len(sentences) > 1 and len(summary) < 90 and len(summary) + len(sentences[1]) < max_chars:
+        summary += " " + sentences[1]
+    if len(summary) > max_chars:
+        summary = summary[:max_chars].rsplit(" ", 1)[0].rstrip(",;:—-") + "…"
+    return summary
+
+
 def book_out(book, full=False):
     out = {
         "id": clean(book.get("id")),
@@ -206,6 +234,7 @@ def book_out(book, full=False):
         "author": clean(book.get("Author")),
         "genre": clean(book.get("Genre")),
         "description": clean(book.get("Description")),
+        "summary": summarize(clean(book.get("Description"))),
         "rating": clean(book.get("Rating")),
         "likes": clean(book.get("like_count")),
         "views": clean(book.get("view_count")),

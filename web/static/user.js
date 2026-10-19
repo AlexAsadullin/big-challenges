@@ -198,7 +198,8 @@ function bookTiles(books) {
       el("div", {},
         el("span", { class: "book-title" }, b.title), " ",
         el("span", { class: "book-meta" }, `· ${b.author}`)),
-      b.genre ? el("span", { class: "book-meta", style: "grid-column:2" }, b.genre) : null)));
+      b.genre ? el("span", { class: "book-meta", style: "grid-column:2" }, b.genre) : null,
+      b.summary ? el("p", { class: "book-desc" }, b.summary) : null)));
 }
 
 function feedbackBar(setId) {
@@ -322,7 +323,7 @@ async function loadForMe() {
           el("div", { class: "pick-cover", style: "background:var(--accent)" }, (b.title || "?")[0]),
           el("div", { class: "pick-title" }, b.title),
           el("div", { class: "pick-meta" }, [b.author, b.genre].filter(Boolean).join(" · ")),
-          b.description ? el("p", { class: "book-desc clamp" }, b.description) : null)),
+          b.summary ? el("p", { class: "book-desc" }, b.summary) : null)),
         feedbackBar(res.set_id)]
       : [el("p", { class: "muted" }, "The library is empty for now.")]));
   } catch (err) {
