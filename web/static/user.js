@@ -498,7 +498,8 @@ async function enter() {
   setChatStatus(state.me.chat);
   renderIdentity();
   fillProfile();
-  showView(location.hash.slice(1) || "feed");
+  // No route in the URL: start on the feed only when it has something the reader hasn't seen
+  showView(location.hash.slice(1) || ((await hasNewPosts()) ? "feed" : "chat"));
 }
 
 session.key = "ba.refresh";

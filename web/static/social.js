@@ -131,6 +131,20 @@ function postCard(post, { inCommunity = false } = {}) {
 
 // ---------- feed ----------
 
+// Time of the newest feed item the reader has seen, per account (a convenience: losing it just shows the feed)
+const seenKey = () => `ba.feedSeen.${state.me.id}`;
+function readSeen() { try { return localStorage.getItem(seenKey()) || ""; } catch { return ""; } }
+function markSeen(at) { try { if (at && at > readSeen()) localStorage.setItem(seenKey(), at); } catch {} }
+
+async function hasNewPosts() {
+  try {
+    const newest = (await api("/api/feed?limit=1")).items[0];
+    return Boolean(newest) && newest.at > readSeen();
+  } catch {
+    return true; // can't tell: show the feed, which reports its own error
+  }
+}
+
 async function loadFeed(more = false) {
   const body = $("#feed-body");
   const btn = $("#feed-more");
@@ -141,6 +155,7 @@ async function loadFeed(more = false) {
   btn.disabled = true;
   try {
     const res = await api(`/api/feed?offset=${social.feedOffset}&limit=20`);
+    if (!more && res.items.length) markSeen(res.items[0].at);
     const cards = res.items.map((item) => (item.kind === "post" ? postCard(item.post) : publicationCard(item.publication)));
     if (more) body.append(...cards);
     else body.replaceChildren(...(cards.length ? cards : [emptyNote(
