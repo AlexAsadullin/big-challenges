@@ -16,7 +16,7 @@ services:
       retries: 3
 
   # The original Telegram bot, sharing the same catalog and database. Start it with:
-  #   docker compose --profile bot up -d
+  #   docker compose --profile bot up
   bot:
     image: books-advisor:latest
     profiles: ["bot"]

@@ -12,17 +12,17 @@ recommender. Two front ends share the same core modules, catalog and SQLite data
 
 ## Commands
 
-**Docker only.** There is no local venv; don't create one or run the app on the host. The SQLite database, catalog,
+**Docker only, in the foreground.** Don't use `-d`: the user wants the app attached to a terminal with live logs
+(run it in a Terminal panel tab, stopped with Ctrl+C). There is no local venv; don't create one or run the app on the host. The SQLite database, catalog,
 FAISS index and models live in the `data` volume (`/data` in the container).
 
 ```bash
 # Dev: code mounted from the working tree, uvicorn --reload (rebuild only when requirements/Dockerfile change)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-docker compose logs -f web
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 # Production-style run, and the optional Telegram bot
-cp .env.example .env && docker compose up -d --build
-docker compose --profile bot up -d
+cp .env.example .env && docker compose up --build
+docker compose --profile bot up
 
 # Scripts and one-offs run inside the container
 docker compose exec web python /app/scripts/make_sample_csv.py /data/books.csv
@@ -35,7 +35,7 @@ docker compose down -v
 On first start the entrypoint builds the ~9,900-book catalog (falls back to a 40-book sample offline).
 Without `API_KEY` the advisor chat and Add a Book are unavailable; everything else works.
 The container gets its environment **only from `.env`** (shell `export`s don't reach it). After editing `.env`, run
-`docker compose ... up -d` to recreate the container: `docker compose restart` keeps the old environment.
+`docker compose ... up` (Ctrl+C the running one first) to recreate the container: `docker compose restart` keeps the old environment.
 Without `JWT_SECRET` sessions end on every restart (including every dev reload after a `.py` edit).
 To test the chat flow without a GigaChat key, run a script in the container with `fastapi.testclient.TestClient`,
 a throwaway `DB_PATH`, and `engine.rag` replaced by a stub whose `giga.invoke` records the messages it receives.

@@ -68,14 +68,14 @@ When the catalog changes size, the FAISS index is rebuilt on startup.
 
 ```bash
 cp .env.example .env      # fill in API_KEY, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, PRIVACY_*
-docker compose up -d --build
+docker compose up --build    # runs in the foreground with live logs; Ctrl+C stops it
 ```
 
 Open http://localhost:8000 (reader app), http://localhost:8000/admin (console), http://localhost:8000/docs (API).
 The first start downloads the catalog and the search models and builds the index, which takes a few minutes;
 the advisor shows "warming up" until it's ready. Everything is kept in the `data` volume.
 
-The Telegram bot can run next to it, sharing the same data: set `BOT_TOKEN` and run `docker compose --profile bot up -d`.
+The Telegram bot can run next to it, sharing the same data: set `BOT_TOKEN` and run `docker compose --profile bot up`.
 
 ### Development
 
@@ -83,8 +83,7 @@ There is no local Python setup: everything builds and runs in Docker. The dev ov
 `scripts/` from the working tree and reloads on changes, with data in the same `data` volume:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-docker compose logs -f web
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 Rebuild the image (`--build`) only when `requirements.txt` or the `Dockerfile` changes.

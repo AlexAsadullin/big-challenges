@@ -26,6 +26,17 @@ app.include_router(admin_api.router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def revalidate_pages(request, call_next):
+    """The app's pages, scripts and styles change with every deploy: browsers must check for a new version
+    (a cheap 304 when nothing changed) instead of guessing how long a cached copy is still good."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") or path in ("/", "/admin", "/privacy"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 @app.on_event("startup")
 def startup():
     auth.ensure_admin()
