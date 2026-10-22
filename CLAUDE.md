@@ -32,6 +32,9 @@ docker compose exec web python -c "import sqlite3; print(sqlite3.connect('/data/
 docker compose down -v
 ```
 
+Hosting: Render, from `render.yaml` (Docker runtime, disk at `/data`, health check `/api/health`). The container listens
+on `$PORT` (Render sets it; compose pins it to 8000). Not Vercel: no room for PyTorch/models and no persistent disk.
+
 On first start the entrypoint builds the ~9,900-book catalog (falls back to a 40-book sample offline).
 Without `API_KEY` the advisor chat and Add a Book are unavailable; everything else works.
 The container gets its environment **only from `.env`** (shell `export`s don't reach it). After editing `.env`, run

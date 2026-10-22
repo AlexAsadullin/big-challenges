@@ -3,6 +3,9 @@ services:
     build: .
     image: books-advisor:latest
     env_file: .env
+    # PORT in .env is the host port; inside the container the app always listens on 8000
+    environment:
+      PORT: "8000"
     ports:
       - "${PORT:-8000}:8000"
     volumes:

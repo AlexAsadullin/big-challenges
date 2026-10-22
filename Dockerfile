@@ -37,4 +37,5 @@ VOLUME ["/data"]
 EXPOSE 8000
 
 ENTRYPOINT ["entrypoint.sh"]
-CMD ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+# Hosts like Render pass the port to listen on in PORT
+CMD ["sh", "-c", "exec uvicorn web.app:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers"]
