@@ -1,0 +1,31 @@
+# Render Blueprint: the web app built from the Dockerfile, with a persistent disk for all state.
+# In Render: New > Blueprint > pick this repository. Values marked sync: false are typed in the Render dashboard.
+services:
+  - type: web
+    name: books-advisor
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # 2 GB RAM: the search models and PyTorch use ~450 MB idle and more per request, too much for 512 MB plans
+    plan: standard
+    healthCheckPath: /api/health
+    # SQLite database, catalog, FAISS index and downloaded models, as in the local `data` volume
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 2
+    envVars:
+      - key: API_KEY  # GigaChat authorization key
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PRIVACY_OPERATOR
+        sync: false
+      - key: PRIVACY_CONTACT
+        sync: false
+      # Render's proxy sets X-Forwarded-For; trust it so sign-in throttling sees real client addresses
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"

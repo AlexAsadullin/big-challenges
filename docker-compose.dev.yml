@@ -1,0 +1,11 @@
+# Development: the code is mounted from the working tree and uvicorn reloads on changes.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Data (SQLite database, catalog, index, models) stays in the `data` volume, as in production.
+services:
+  web:
+    command: ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/web", "--reload-dir", "/app/src"]
+    volumes:
+      - data:/data
+      - ./web:/app/web:ro
+      - ./src:/app/src:ro
+      - ./scripts:/app/scripts:ro

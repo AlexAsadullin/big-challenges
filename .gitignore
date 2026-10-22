@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+models/
+books.csv
+books.db
+faiss_index.index
+bot.log
+.env
+venv/
+.DS_Store
