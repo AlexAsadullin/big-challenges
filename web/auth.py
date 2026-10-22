@@ -56,6 +56,9 @@ with lock:
         CREATE INDEX IF NOT EXISTS refresh_tokens_account ON refresh_tokens (account_id);
         """
     )
+    # Added with public profiles; older databases get the column here
+    if "bio" not in {row[1] for row in db.conn.execute("PRAGMA table_info(accounts)")}:
+        db.conn.execute("ALTER TABLE accounts ADD COLUMN bio TEXT")
     db.conn.commit()
 
 
@@ -142,7 +145,9 @@ def unauthorized(detail="Sign in to continue"):
     return HTTPException(401, detail, headers={"WWW-Authenticate": "Bearer"})
 
 
-ACCOUNT_COLUMNS = ["id", "email", "password_hash", "name", "role", "consent_version", "consent_at", "created_at", "last_seen"]
+ACCOUNT_COLUMNS = [
+    "id", "email", "password_hash", "name", "bio", "role", "consent_version", "consent_at", "created_at", "last_seen",
+]
 
 
 def get_account(account_id=None, email=None):
@@ -159,6 +164,7 @@ def public_account(account) -> dict:
         "id": account["id"],
         "email": account["email"],
         "name": account["name"],
+        "bio": account["bio"],
         "role": account["role"],
         "consent_version": account["consent_version"],
         "consent_at": account["consent_at"],

@@ -7,3 +7,5 @@ books.db
 faiss_index.index
 bot.log
 .env
+venv/
+.DS_Store

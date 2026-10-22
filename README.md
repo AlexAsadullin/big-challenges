@@ -12,10 +12,7 @@
 
 ## Установка и запуск
 
-1. Установите зависимости:
-   ```bash
-   pip install -r requirements.txt   
-   ```
+Проект собирается и запускается только в Docker (см. «Running with Docker» ниже), база данных живёт в Docker-томе `data`.
 
 ## Web app
 
@@ -23,11 +20,21 @@
 
 **Reader app** at `/`, designed for phones. Readers create an account (email, password, age, language)
 and must accept the privacy policy to sign up.
+- **Feed**: posts from communities the reader joined and books published by readers they follow, newest first
+- **Explore**: communities, authors and readers, with search. Every author in the catalog has a profile with their
+  books (built from `books.csv` on startup). Catalog authors have no account and can't sign in (many, like Pushkin,
+  are long dead); readers can follow them
+- **Public profiles**: name, bio, followers/following, published books, communities they run. Readers follow each other
+- **Publishing**: readers publish their own books (title, genre, description, optional full text and link) to their
+  profile. No copyright or plagiarism checks yet. Published books stay apart from the catalog and the recommender
+- **Communities**: anyone can create one. The creator appoints admins from its members; only the creator and admins
+  can post and edit posts, everyone else reads and joins. Creators and admins can repost their own books into
+  communities they run. Deleting a community deletes its posts
 - **Advisor**: chat with RAG search and GigaChat, like/dislike a set of picks, voice input (Web Speech API)
 - **For You**: personal recommendations. Every refresh skips books from recent sets and books already rated,
   and samples from the top-ranked pool, so it doesn't repeat itself
-- **Add Book**: the book goes straight into the CSV and the FAISS index, with an optional link
-- **Profile**: name, age, language; download my data; sign out; delete account
+- **Add a Book** (linked from Explore): the book goes straight into the catalog CSV and the FAISS index, with an optional link
+- **Profile**: my books and communities, name, bio, age, language; download my data; sign out; delete account
 
 Every recommended book links to its own page: the link given in Add Book, or its Open Library work page
 (free, no registration, includes the description). Lookups are cached in `web_book_links`.
@@ -47,9 +54,10 @@ overview metrics, users (with email and consent date), books, and live settings 
 `PRIVACY_CONTACT`). Consent is required to register and is recorded with its version and date. Bump
 `CONSENT_VERSION` in `web/auth.py` when the policy changes, and readers are asked to accept again.
 Readers can export their data (`GET /api/me/export`) and delete their account (`DELETE /api/me`), which removes
-their account, profile, reactions and history.
+their account, profile, reactions and history, follows, published books, posts and the communities they created.
 
-**Data.** Accounts, profiles, reactions, recommendation history and tokens are stored in SQLite (`DB_PATH`).
+**Data.** Accounts, profiles, reactions, recommendation history, tokens, authors, follows, published books,
+communities and posts are stored in SQLite (`DB_PATH`, `/data/books.db` in the container).
 The catalog is `books.csv`, built from [goodbooks-10k-extended](https://github.com/malcolmosh/goodbooks-10k-extended)
 (about 9,900 books with descriptions, genres and ratings; CC BY-SA 4.0) by `scripts/build_dataset.py`.
 When the catalog changes size, the FAISS index is rebuilt on startup.
@@ -67,14 +75,15 @@ the advisor shows "warming up" until it's ready. Everything is kept in the `data
 
 The Telegram bot can run next to it, sharing the same data: set `BOT_TOKEN` and run `docker compose --profile bot up -d`.
 
-### Running locally
+### Development
+
+There is no local Python setup: everything builds and runs in Docker. The dev override mounts `web/`, `src/` and
+`scripts/` from the working tree and reloads on changes, with data in the same `data` volume:
 
 ```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -r requirements.txt
-python scripts/build_dataset.py books.csv     # or scripts/make_sample_csv.py for a 40-book offline sample
-export API_KEY=... JWT_SECRET=... ADMIN_EMAIL=... ADMIN_PASSWORD=...
-uvicorn web.app:app --port 8000
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+docker compose logs -f web
 ```
 
-The bot still runs as before: `cd src && python bot.py`.
+Rebuild the image (`--build`) only when `requirements.txt` or the `Dockerfile` changes.
+To start from an empty database and catalog: `docker compose down -v`.

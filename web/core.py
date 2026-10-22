@@ -26,8 +26,14 @@ from db import Database  # noqa: E402
 from recsys import DEFAULT_WEIGHTS, RecommendationSystem  # noqa: E402
 
 warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# Own handler: ML libraries configure the root logger first, which would silently drop these INFO lines
 logger = logging.getLogger("web")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(_handler)
+    logger.propagate = False
 
 AGE_BUCKETS = [(8, 17), (18, 27), (28, 37), (38, 47), (48, 57), (58, 67), (68, 77), (78, 87), (88, 97)]
 

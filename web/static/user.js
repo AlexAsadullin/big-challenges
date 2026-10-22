@@ -1,7 +1,9 @@
 "use strict";
 
 const state = { me: {}, chat: { state: "loading" }, loaded: new Set() };
-const TITLES = { chat: "Advisor", forme: "For You", add: "Add a Book", profile: "Profile" };
+const TITLES = { feed: "Feed", chat: "Advisor", forme: "For You", explore: "Explore", add: "Add a Book", profile: "Profile" };
+// Tab that stays highlighted on views without their own tab
+const TAB_OF = { add: "explore" };
 
 // Status phrases while the advisor works: "library browsing" and "whimsical" sets
 const LIBRARY_PHRASES = [
@@ -71,31 +73,48 @@ function reveal(node, text) {
 const app = $("#app");
 const currentView = () => app.dataset.view;
 
+// Views are tabs ("feed") or detail pages ("user/12", "community/3"), rendered by social.js into the page panel
 function showView(name) {
-  if (!TITLES[name]) name = "chat";
+  const base = name.split("/")[0];
+  const isPage = Boolean(PAGES[base]);
+  if (!TITLES[name] && !isPage) name = "feed";
   app.dataset.view = name;
-  $$(".tab").forEach((t) => t.setAttribute("aria-selected", t.dataset.view === name));
+  const tab = isPage ? state.lastTab : TAB_OF[name] || name;
+  if (!isPage) state.lastTab = TAB_OF[name] || name;
+  $$(".tab").forEach((t) => t.setAttribute("aria-selected", t.dataset.view === tab));
+  const panel = isPage ? "page" : name;
   $$("[data-panel]").forEach((p) => {
-    const on = p.dataset.panel === name;
+    const on = p.dataset.panel === panel;
     p.hidden = !on;
     if (on) { p.classList.remove("view-enter"); void p.offsetWidth; p.classList.add("view-enter"); }
   });
-  $("#page-title").textContent = TITLES[name];
+  $("#back-btn").hidden = !isPage && name !== "add";
   $("#newchat-btn").hidden = name !== "chat";
   if (location.hash.slice(1) !== name) history.replaceState(null, "", `#${name}`);
   window.scrollTo({ top: name === "chat" ? document.body.scrollHeight : 0 });
+  if (isPage) return renderPage(name);
+  $("#page-title").textContent = TITLES[name];
+  renderIdentity();
   const first = !state.loaded.has(name);
   state.loaded.add(name);
+  if (name === "feed") loadFeed();
+  if (name === "explore" && first) loadExplore();
   if (name === "forme" && first) loadForMe();
   if (name === "add" && first) loadGenreHints();
-  if (name === "profile") fillProfile();
+  if (name === "profile") { fillProfile(); renderMySocial(); }
 }
 
 $$(".tab").forEach((t) => (t.onclick = () => showView(t.dataset.view)));
+// Links between pages push history entries, so Back returns to where the reader came from
+state.depth = 0;
 window.addEventListener("hashchange", () => {
   const name = location.hash.slice(1);
-  if (name !== currentView()) showView(name);
+  if (name !== currentView()) { state.depth++; showView(name); }
 });
+$("#back-btn").onclick = () => {
+  if (state.depth > 0) { state.depth -= 2; history.back(); } // the hashchange it fires adds one back
+  else showView(state.lastTab || "feed");
+};
 
 // ---------- status ----------
 
@@ -141,6 +160,7 @@ function renderIdentity() {
 
 function fillProfile() {
   $("#p-name").value = state.me.name || "";
+  $("#p-bio").value = state.me.bio || "";
   $("#p-age").value = state.me.age ?? "";
   const browser = (navigator.language || "en").slice(0, 2);
   const lang = state.me.language || browser;
@@ -162,10 +182,11 @@ $("#profile-form").onsubmit = async (e) => {
   try {
     const me = await api("/api/me", {
       method: "PUT",
-      body: { name: $("#p-name").value, age: Number($("#p-age").value), language: $("#p-lang").value },
+      body: { name: $("#p-name").value, bio: $("#p-bio").value, age: Number($("#p-age").value), language: $("#p-lang").value },
     });
     Object.assign(state.me, me);
     renderIdentity();
+    renderMySocial();
     state.loaded.delete("forme");
     toast("Profile saved");
     if (firstTime) showView("chat");
@@ -467,6 +488,7 @@ function resetApp() {
   $("#messages").replaceChildren($("#chat-empty"));
   $("#chat-empty").hidden = false;
   $("#forme-body").replaceChildren();
+  resetSocial();
 }
 
 async function enter() {
@@ -476,7 +498,7 @@ async function enter() {
   setChatStatus(state.me.chat);
   renderIdentity();
   fillProfile();
-  showView(location.hash.slice(1) || "chat");
+  showView(location.hash.slice(1) || "feed");
 }
 
 session.key = "ba.refresh";

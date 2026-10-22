@@ -7,3 +7,5 @@ books.csv
 books.db
 faiss_index.index
 *.log
+venv
+.DS_Store

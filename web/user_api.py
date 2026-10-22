@@ -12,8 +12,10 @@ from web.auth import (
     user_id_of, verify_password,
 )
 from web.core import (
-    CSV_PATH, book_link, book_out, db, engine, genre_counts, load_settings, lock, logger, prefetch_links, recommender,
+    CSV_PATH, INDEX_PATH, book_link, book_out, db, engine, genre_counts, load_settings, lock, logger, prefetch_links,
+    recommender,
 )
+from web.social_api import delete_social_data, export_social_data, link_book_authors
 
 router = APIRouter(prefix="/api", tags=["reader"])
 
@@ -33,6 +35,7 @@ def health():
 
 class ProfileIn(BaseModel):
     name: Optional[str] = Field(default=None, max_length=60)
+    bio: Optional[str] = Field(default=None, max_length=500)
     age: int = Field(ge=5, le=110)
     language: str = Field(max_length=10)
 
@@ -63,7 +66,10 @@ def put_me(body: ProfileIn, account: dict = Depends(current_reader)):
         raise HTTPException(422, "Unsupported language")
     with lock:
         db.save_user_profile(user_id_of(account["id"]), language=language, age=body.age)
-        db.conn.execute("UPDATE accounts SET name = ? WHERE id = ?", ((body.name or "").strip() or None, account["id"]))
+        db.conn.execute(
+            "UPDATE accounts SET name = ?, bio = ? WHERE id = ?",
+            ((body.name or "").strip() or None, (body.bio or "").strip() or None, account["id"]),
+        )
         db.conn.commit()
     return me_out(get_account(account["id"]))
 
@@ -103,6 +109,7 @@ def export_my_data(account: dict = Depends(current_account)):
             {"at": t, "books": [titles.get(int(b), b) for b in ids.split(",") if b]} for _, ids, t in sets
         ],
         "current_chat": chat,
+        **export_social_data(account["id"]),
     }
 
 
@@ -116,6 +123,7 @@ def delete_account(body: DeleteIn, account: dict = Depends(current_account)):
     with lock:
         for table in ("user_interactions", "recommendation_sets", "user_profiles"):
             db.conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+        delete_social_data(account["id"])
         db.conn.execute("DELETE FROM refresh_tokens WHERE account_id = ?", (account["id"],))
         db.conn.execute("DELETE FROM accounts WHERE id = ?", (account["id"],))
         db.conn.commit()
@@ -286,4 +294,8 @@ def add_book(body: BookIn, account: dict = Depends(current_reader)):
     with lock:
         new_id, embedding = rag.add_book(new_book)
         recommender.add_book(int(new_id), embedding)
+        # rag.add_book only updates the in-memory index; save it so the book survives a restart
+        # and the index stays the same size as the catalog (otherwise it's rebuilt from scratch)
+        engine.rag_module.faiss.write_index(rag.index, INDEX_PATH)
+    link_book_authors(new_id, new_book["Author"])
     return book_out({**new_book, "id": int(new_id)})
