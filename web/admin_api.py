@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from web.auth import current_admin
+from web.chat_history import message_count
 from web.core import (
     AGE_BUCKETS, DB_PATH, Settings, book_out, engine, genre_counts, load_settings, query_books,
     recommender, save_settings,
@@ -99,7 +100,9 @@ def user_detail(user_id: int):
         ],
         "liked": [titles.get(b, f"#{b}") for b, a in reactions if a == "like"][:30],
         "disliked": [titles.get(b, f"#{b}") for b, a in reactions if a == "dislike"][:30],
-        "chat_messages": max(len(engine.rag.memory.get(user_id, [])) - 1, 0) if engine.rag else None,
+        # Web readers' chats are saved; the Telegram bot only keeps its current chat in memory
+        "chat_messages": message_count(-user_id) if user_id < 0
+        else max(len(engine.rag.memory.get(user_id, [])) - 1, 0) if engine.rag else None,
     }
 
 

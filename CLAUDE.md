@@ -34,7 +34,11 @@ docker compose down -v
 
 On first start the entrypoint builds the ~9,900-book catalog (falls back to a 40-book sample offline).
 Without `API_KEY` the advisor chat and Add a Book are unavailable; everything else works.
-Without `JWT_SECRET` sessions end on every restart (including dev reloads).
+The container gets its environment **only from `.env`** (shell `export`s don't reach it). After editing `.env`, run
+`docker compose ... up -d` to recreate the container: `docker compose restart` keeps the old environment.
+Without `JWT_SECRET` sessions end on every restart (including every dev reload after a `.py` edit).
+To test the chat flow without a GigaChat key, run a script in the container with `fastapi.testclient.TestClient`,
+a throwaway `DB_PATH`, and `engine.rag` replaced by a stub whose `giga.invoke` records the messages it receives.
 
 There are no tests, linter config or CI. Verify changes against the running container: `/api/health`, `/docs`, the UI
 at http://localhost:8000, or a small script calling the API.
@@ -62,6 +66,14 @@ at http://localhost:8000, or a small script calling the API.
   reuse detection by token family; scrypt/PBKDF2 hashing; in-memory sign-in throttling; `ensure_admin()` from env;
   `CONSENT_VERSION` gates readers (`current_reader` → 403 `consent_required`).
 - `user_api.py` — `/api/me*`, `/api/chat`, `/api/recommendations`, `/api/feedback`, `/api/books`, `/api/genres`, `/api/books/{id}/open` (public redirect).
+- `chat_history.py` — saved advisor chats: tables `chats` and `chat_messages` (role, text, the books shown as
+  `book_out` JSON, `set_id`, feedback). Endpoints `/api/chats` (list + search over titles and message text),
+  `/api/chats/{id}` (GET/PATCH rename/DELETE). `POST /api/chat` takes an optional `chat_id`; a new chat is created
+  (titled after the first message) only once the model has answered.
+  - `rag.memory[user_id]` is a single conversation per user, so before every message `context_for()` **rebuilds it
+    from the stored chat** in the same shape `rag.build_prompt`/`update_history` produce (system, question, books
+    context, answer; trimmed to `max_messages`). The stored chat is the source of truth; `rag.memory` is scratch.
+  - The Telegram bot still uses plain `rag.memory` (not saved).
 - `social_api.py` — the social layer, keyed by **account id**: tables `authors`, `author_books`, `follows`
   (`target_type` `user`/`author`), `publications` (readers' own books), `communities`, `community_admins`,
   `community_members`, `posts` (text and/or a repost via `publication_id`). Endpoints: `/api/users*`, `/api/authors*`,
@@ -76,7 +88,8 @@ at http://localhost:8000, or a small script calling the API.
 - `admin_api.py` — `/api/admin/*` (overview, users, books, settings). Reads use their own read-only connections.
 - `app.py` — mounts routers and `static/`, serves `user.html`, `admin.html`, and `/privacy` (template with `{{version}}`, `{{operator}}`, `{{contact}}`).
 - `static/` — vanilla JS/CSS, no build step. `common.js` holds shared fetch/auth helpers and `el()`.
-  Reader app: `user.js` (tabs, chat, For You, Add a Book, auth, routing) and `social.js` (feed, Explore, detail pages).
+  Reader app: `user.js` (tabs, chat and the saved-chats drawer, For You, Add a Book, auth, routing) and `social.js`
+  (feed, Explore, detail pages).
   Routing is by hash: tabs (`#feed`, `#chat`, `#forme`, `#explore`, `#profile`, `#add`) and detail pages
   (`#user/12`, `#author/5`, `#community/3`, `#publication/7`, `#publish[/id]`, `#new-community`, `#edit-community/3`,
   `#following/12`, `#followers/12`) registered in `PAGES` in `social.js` and rendered into `[data-panel="page"]`.

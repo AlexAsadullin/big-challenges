@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from web import admin_api, auth, social_api, user_api
+from web import admin_api, auth, chat_history, social_api, user_api
 from web.core import apply_settings, load_rag, load_settings, logger
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -20,6 +20,7 @@ app = FastAPI(
 )
 app.include_router(auth.router)
 app.include_router(user_api.router)
+app.include_router(chat_history.router)
 app.include_router(social_api.router)
 app.include_router(admin_api.router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

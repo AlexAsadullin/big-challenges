@@ -74,6 +74,10 @@
     </div>
     <div class="appbar-right">
       <span class="dot" id="conn-dot" title="Connection"></span>
+      <button class="btn sm ghost" id="history-btn" title="Your chats" aria-label="Your chats" aria-controls="chat-drawer" aria-expanded="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h12M3 18h8"/></svg>
+        Chats
+      </button>
       <button class="btn sm ghost" id="newchat-btn" title="Start a new chat">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
         New chat
@@ -222,6 +226,23 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>Profile</button>
   </nav>
 </div>
+
+<!-- Saved advisor chats: slides in from the left -->
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+<aside class="drawer" id="chat-drawer" aria-label="Your chats" inert>
+  <div class="drawer-head">
+    <h2>Chats</h2>
+    <button class="btn sm ghost" id="drawer-close" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <button class="btn primary" id="drawer-new">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+    New chat
+  </button>
+  <input class="input" id="chat-search" type="search" placeholder="Search chats" aria-label="Search chats">
+  <div class="chat-list" id="chat-list" role="list"></div>
+</aside>
 
 <div class="backdrop" id="confirm-dialog" hidden>
   <div class="dialog pop" role="alertdialog" aria-labelledby="confirm-title">

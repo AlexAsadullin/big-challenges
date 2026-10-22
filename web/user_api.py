@@ -15,6 +15,7 @@ from web.core import (
     CSV_PATH, INDEX_PATH, book_link, book_out, db, engine, genre_counts, load_settings, lock, logger, prefetch_links,
     recommender,
 )
+from web.chat_history import check_chat, context_for, create_chat, delete_chats, export_chats, mark_feedback, save_turn
 from web.social_api import delete_social_data, export_social_data, link_book_authors
 
 router = APIRouter(prefix="/api", tags=["reader"])
@@ -100,7 +101,6 @@ def export_my_data(account: dict = Depends(current_account)):
         sets = db.conn.execute(
             "SELECT set_id, book_ids, timestamp FROM recommendation_sets WHERE user_id = ? ORDER BY set_id", (user_id,)
         ).fetchall()
-        chat = [getattr(m, "content", str(m)) for m in (engine.rag.memory.get(user_id, [])[1:] if engine.rag else [])]
     return {
         "account": {k: v for k, v in public_account(account).items() if k != "consent_required"},
         "profile": profile,
@@ -108,7 +108,7 @@ def export_my_data(account: dict = Depends(current_account)):
         "recommendations": [
             {"at": t, "books": [titles.get(int(b), b) for b in ids.split(",") if b]} for _, ids, t in sets
         ],
-        "current_chat": chat,
+        "chats": export_chats(account["id"]),
         **export_social_data(account["id"]),
     }
 
@@ -124,6 +124,7 @@ def delete_account(body: DeleteIn, account: dict = Depends(current_account)):
         for table in ("user_interactions", "recommendation_sets", "user_profiles"):
             db.conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
         delete_social_data(account["id"])
+        delete_chats(account["id"])
         db.conn.execute("DELETE FROM refresh_tokens WHERE account_id = ?", (account["id"],))
         db.conn.execute("DELETE FROM accounts WHERE id = ?", (account["id"],))
         db.conn.commit()
@@ -137,6 +138,7 @@ def delete_account(body: DeleteIn, account: dict = Depends(current_account)):
 
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+    chat_id: Optional[int] = Field(default=None, description="Saved chat to continue; omit to start a new one")
 
 
 def update_profile_task(user_id):
@@ -150,10 +152,14 @@ def chat(body: ChatIn, tasks: BackgroundTasks, account: dict = Depends(current_r
     user_id = user_id_of(account["id"])
     rag = require_rag()
     query = body.message.strip()
+    if body.chat_id is not None:
+        check_chat(account["id"], body.chat_id)
     # Same steps as RAGSystem.get_recommendation, split so the slow GigaChat call runs
     # outside the lock and doesn't stall every other reader's requests.
     try:
         with lock:
+            # The model sees the saved history of this chat, not whatever chat the reader had open last
+            rag.memory[user_id] = context_for(body.chat_id, rag)
             books = rag.search_books(user_id, query, initial_k=100)
             books = rag.rerank_with_cross_encoder(query, books)
             for book in books:
@@ -169,12 +175,15 @@ def chat(body: ChatIn, tasks: BackgroundTasks, account: dict = Depends(current_r
         rag.update_history(user_id, "assistant", response.content)
         reply = rag.clean_text(response.content)
         set_id = db.save_recommendation_set(user_id, [int(b["id"]) for b in books])
+        chat_id = body.chat_id or create_chat(account["id"], query)
+        found = [book_out(b) for b in books]
+        save_turn(chat_id, query, reply, found, set_id)
     tasks.add_task(update_profile_task, user_id)
     tasks.add_task(prefetch_links, [b["id"] for b in books])
-    return {"reply": reply, "books": [book_out(b) for b in books], "set_id": set_id}
+    return {"reply": reply, "books": found, "set_id": set_id, "chat_id": chat_id}
 
 
-@router.post("/chat/reset")
+@router.post("/chat/reset", summary="Clears the advisor's working memory (saved chats are kept)")
 def chat_reset(account: dict = Depends(current_reader)):
     with lock:
         if engine.rag is not None:
@@ -238,6 +247,8 @@ def feedback(body: FeedbackIn, tasks: BackgroundTasks, account: dict = Depends(c
         book_ids = [int(b) for b in row[0].split(",") if b]
         for book_id in book_ids:
             db.add_interaction(user_id, book_id, body.action)
+        mark_feedback(body.set_id, body.action)
+        db.conn.commit()
         rag = engine.rag
         if rag is not None:
             (rag.update_like_count if body.action == "like" else rag.update_dislike_count)(book_ids)

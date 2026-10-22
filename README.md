@@ -30,7 +30,9 @@ and must accept the privacy policy to sign up.
 - **Communities**: anyone can create one. The creator appoints admins from its members; only the creator and admins
   can post and edit posts, everyone else reads and joins. Creators and admins can repost their own books into
   communities they run. Deleting a community deletes its posts
-- **Advisor**: chat with RAG search and GigaChat, like/dislike a set of picks, voice input (Web Speech API)
+- **Advisor**: chat with RAG search and GigaChat, like/dislike a set of picks, voice input (Web Speech API).
+  Every chat is saved: **Chats** opens a panel on the left with search across all chats (titles, questions and
+  answers), and chats can be reopened, continued, renamed and deleted. **New chat** starts a fresh one
 - **For You**: personal recommendations. Every refresh skips books from recent sets and books already rated,
   and samples from the top-ranked pool, so it doesn't repeat itself
 - **Add a Book** (linked from Explore): the book goes straight into the catalog CSV and the FAISS index, with an optional link
@@ -54,7 +56,7 @@ overview metrics, users (with email and consent date), books, and live settings 
 `PRIVACY_CONTACT`). Consent is required to register and is recorded with its version and date. Bump
 `CONSENT_VERSION` in `web/auth.py` when the policy changes, and readers are asked to accept again.
 Readers can export their data (`GET /api/me/export`) and delete their account (`DELETE /api/me`), which removes
-their account, profile, reactions and history, follows, published books, posts and the communities they created.
+their account, profile, reactions and history, saved chats, follows, published books, posts and the communities they created.
 
 **Data.** Accounts, profiles, reactions, recommendation history, tokens, authors, follows, published books,
 communities and posts are stored in SQLite (`DB_PATH`, `/data/books.db` in the container).

@@ -21,7 +21,20 @@ Branch `web-app` (base: `main`). History, newest first:
 - `c7eee7b` FastAPI web interface
 - `dc5bfbd`, `b998e59` original Telegram bot
 
-### Uncommitted work in the tree (2026-10-22)
+### Saved chats (2026-10-22, after PR #1 was opened)
+
+- Every advisor chat is stored (`web/chat_history.py`); the model's context is rebuilt from the stored chat on each
+  message, so switching chats and restarts lose nothing.
+- **Chats** button on the Advisor tab opens a drawer on the left: New chat, search across titles, questions and
+  answers (with a snippet), open, rename, delete. Reopened chats keep their books and like/dislike state.
+- Export and account deletion include chats; the admin user detail counts saved messages for web readers.
+- Verified: 20 checks in the container with a stub model (context per chat, no leaks between chats or readers,
+  trimming, search, feedback, rename, delete, export, account deletion) and the drawer in the browser at phone width.
+  Not verified against real GigaChat (no `API_KEY` in `.env`).
+- Also: Advisor opens by default when the feed has nothing new; "Save changes" on the profile appears only when
+  something changed.
+
+### Social layer and Docker setup (2026-10-22, commit 947debe)
 
 **Social layer** (`web/social_api.py`, `web/static/social.js`, edits to `user.html`/`user.js`/`user.css`, `auth.py`, `user_api.py`, `app.py`):
 - Public profiles: `accounts.bio` column; profile page with followers/following, published books, communities run.
@@ -67,7 +80,8 @@ Pre-existing (recommender: noted, not to be fixed now):
 6. Warm-start personalisation never runs (`get_user_metadata` doesn't return `profile_embedding`; the `embeddings` table is never filled).
 7. `rag.search_books` rewrites `books.csv` several times per chat request; N+1 queries in `update_mean_age_for_books`.
 8. `db.add_interaction` keeps one row per (user, book), so a later "view" erases a "like".
-9. Chat memory and sign-in throttling are in memory: lost on restart, not shared across workers. Run one uvicorn worker.
+9. Sign-in throttling and the Telegram bot's chat memory are in memory: lost on restart, not shared across workers.
+   Run one uvicorn worker. (Web chats are saved in the database.)
 10. GigaChat runs with `verify_ssl_certs=False`. No tests or CI.
 
 ## Suggested next steps
